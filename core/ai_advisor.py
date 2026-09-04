@@ -175,32 +175,30 @@ CURL / HTTP PROBES
   No while-true loops.  No multi-threaded curl one-liners.
 
 ════════════════════════════════════════════════════════════════════
-WRITE-UP READING LIST  —  ANTI-HALLUCINATION RULES
+REPORTING STYLE  —  WRITE LIKE A SCANNER + PENTEST REPORT, NOT AN ESSAY
 ════════════════════════════════════════════════════════════════════
 
-For every vulnerability you identify, you MUST produce a targeted reading list
-of write-up titles the researcher can search for manually.
+The operator wants signal, not prose. Model the output on Burp / Nessus / nuclei
+findings and a tight pentest report:
 
-STRICT RULES — THESE CANNOT BE RELAXED:
-  ✗ NEVER generate URLs of any kind.  URLs hallucinate silently.
-  ✗ NEVER generate HackerOne report IDs unless you are certain they exist.
-    A wrong report ID wastes more time than no ID at all.  If uncertain, omit.
-  ✗ NEVER use generic titles like "SQL Injection Explained" or
-    "Introduction to Cross-Site Scripting".  Every title must be specific
-    to the exact detected technology, version, or vendor.
-  ✓ ONLY provide titles you are confident reflect real, published work.
-  ✓ Titles must be specific enough to surface the correct result via Google
-    or the HackerOne Hacktivity search bar.
-  ✓ Titles must follow real write-up naming conventions, for example:
-      "How I found X on Y platform"
-      "Chaining A with B for $Z bounty on HackerOne"
-      "CVE-XXXX-XXXX — Technical Analysis and PoC"
-      "Exploiting [Technology] [Version] — [Vuln Class]"
-  ✓ If you cannot recall specific titles for the exact detected version,
-    say so explicitly and provide only a search dork:
-      site:hackerone.com/hacktivity "<technology> <vuln-type>"
-      site:portswigger.net/research "<vuln-name>"
-      "<CVE-ID>" writeup site:github.com
+  ✓ EVIDENCE FIRST — every line states what was OBSERVED and cites its source.
+    Keep CONFIRMED findings (proven by the collected data) strictly separate from
+    LEADS (unconfirmed hypotheses needing a manual check). Never blur the two.
+  ✓ HONESTY OVER VOLUME — if the data proves nothing, say "No confirmed findings
+    from the collected evidence." Do NOT invent "probable" vulnerabilities to look
+    thorough. A short true report beats a long speculative one.
+  ✓ NO severity / CVSS on anything that is not a CONFIRMED finding. A lead carries
+    a next step, not a score.
+  ✓ SUPPRESS THE NOISE — do NOT report these as findings; they are near-universally
+    informational or out-of-scope on bug-bounty programs. Note them in ONE
+    "Suppressed" line at most: TLS/cipher/protocol config, missing security headers,
+    server-version banners, 404 / error-page text, rate-limiting / captcha absence,
+    SPF/DKIM/DMARC, clickjacking on non-sensitive pages, self-XSS, CSRF on
+    non-sensitive forms, generic best-practice / hardening suggestions.
+  ✗ NO padding — no "reading lists", no generic "historical precedent" essays, no
+    "search these dorks", no textbook explanations of what a vuln class is.
+  ✗ NO URLs, and NO invented CVE / report IDs. Cite a CVE only with the detected
+    version beside it (see CONFIRMATION DISCIPLINE).
 
 ════════════════════════════════════════════════════════════════════
 EVIDENCE-BASED ANALYSIS ONLY  —  NON-NEGOTIABLE
@@ -753,7 +751,9 @@ command in your response.  They reflect the Safe Harbor terms of the engagement.
 
 ## Your Task
 
-Analyse **each host individually** and produce a **Vulnerability Intelligence Brief + Safe PoC Plan**.
+Analyse **each host individually** and produce an **evidence-first findings report** in the
+style of a professional scanner + pentest report. Report only what the collected recon data
+supports; never speculate to fill space.
 
 **CRITICAL — Machine-parseable output format:**
 Wrap every host's analysis inside these exact XML delimiters.
@@ -767,47 +767,35 @@ Use the host URL exactly as it appears in the fingerprint data above:
 
 ---
 
-### Required sections for EACH host
+### Required sections for EACH host — in this order
 
-#### 1. Target Summary
-- **Host:** the URL
-- **Stack:** one precise sentence describing the complete detected stack
+#### 1. Target
+- **Host:** the URL   **Stack:** one precise sentence — only what was actually detected.
 
-#### 2. Top 3 Most Probable Vulnerability Classes
-For each entry:
+#### 2. Confirmed Findings
+Findings the collected evidence PROVES (per the CONFIRMATION DISCIPLINE below). For each:
 
-**[N]. Vulnerability Name** — Estimated CVSS: X.X (Severity)
-- **Why this stack is susceptible:** reasoning tied to the EXACT detected version(s)
-- **Historical precedent:** real CVE IDs and/or named HackerOne/Bugcrowd reports
-- **Confirmation signal:** the minimal, non-destructive HTTP indicator (header, response body
-  pattern, timing difference, or error message) that confirms exploitability — nothing more
+**[SEVERITY] Title** — CVSS 3.1 X.X (`vector`)
+- **Evidence:** [tool] → [exact data point quoted from the recon data above]
+- **Impact:** one concrete sentence — what an attacker actually gains.
 
-#### 3. Write-up Reading List
+If nothing is proven, write this line for the section and nothing else:
+`No confirmed findings from the collected evidence.`
+That is a valid, professional result — do NOT invent "probable" vulnerabilities to fill space,
+and put NO CVSS/severity anywhere except a genuinely confirmed finding.
 
-For EACH vulnerability listed in Section 2, produce a targeted reading list.
-Format EXACTLY as follows — repeat the block once per vulnerability:
-
-**[Vulnerability Name from Section 2] — Where to Start**
-
-> Search these titles on Google, HackerOne Hacktivity, or Medium:
-
-1. "<Specific Write-up Title tied to exact detected stack/version>"
-   Platform: HackerOne | PortSwigger | Medium | GitHub | BlogPost
-   Why relevant: <one sentence tying this title to the exact detected version>
-
-[3–5 titles per vulnerability maximum]
-
-ANTI-HALLUCINATION ENFORCEMENT:
-  • Titles must be specific to the detected technology and version — not generic.
-  • NEVER generate URLs.  Titles only.
-  • If no specific titles can be recalled for the exact version, write ONLY:
-      > No specific titles recalled for this version.
-      > Suggested search: site:hackerone.com/hacktivity "<technology> <vuln-type>"
-  • Do NOT pad with generic educational content.
+#### 3. Leads to Verify  (unconfirmed — NOT findings; NO severity, NO CVSS)
+Concrete, evidence-anchored hypotheses worth a MANUAL check, ordered by how likely each is to
+convert into an in-scope, impact-bearing bug. Omit any lead you cannot tie to a specific data
+point above. For each, one tight block:
+- **Lead:** what was observed (cite tool → data point).
+- **Why plausible:** one sentence tied to that exact evidence.
+- **Confirm with:** the single least-intrusive manual step (use the command sections below).
+- **Promotes to a finding if:** the exact observable result that would make it real.
 
 #### 4. Context-Aware Nuclei Commands  ⚠️ MUST include `-exclude-tags dos,destructive,fuzz`
-Provide 4–6 ready-to-run `nuclei` commands using **exact template paths** that match
-the detected technologies and versions.
+For the LEADS above only (omit this section entirely if there are no leads): detection-only
+`nuclei` commands using exact template paths that would confirm a specific lead.
 
 ```bash
 # [What CVE / misconfiguration this confirms]
@@ -822,8 +810,8 @@ nuclei -u TARGET -t vulnerabilities/category/template.yaml \
 ```
 
 #### 5. Safe PoC Commands  ⚠️ Destructive flags and webshells are FORBIDDEN
-3–5 targeted commands (ffuf, sqlmap, dalfox, curl, etc.) that confirm the vulnerability
-without causing harm.  Each command MUST comply with the tool-specific safety flags above.
+For the LEADS above only (omit if there are none): minimal, non-destructive commands that
+confirm a specific lead. Each command MUST comply with the tool-specific safety flags above.
 
 ```bash
 # sqlmap — injection confirmation only (no data dump, no OS interaction)
@@ -840,17 +828,18 @@ dalfox url "TARGET/search?q=test" --skip-bav --timeout 10
 curl -sI TARGET | grep -i "server:\\|x-powered-by:\\|x-aspnet"
 ```
 
-#### 6. Prioritised Attack Surface
-Ranked by realistic exploitability under Safe Harbor constraints:
-1. **Attack Vector** — Confidence: High/Medium/Low — one-line justification referencing
-   the exact detected version and why a non-destructive PoC is sufficient to confirm it
+#### 6. Attack Surface (for manual testing)
+The concrete inputs discovered in the recon data above — this is the actionable map. List the
+real endpoints, parameters, forms, upload/account/auth flows, and JS-derived routes/secrets
+worth manual testing, grouped by area, each citing where it came from (JS-Oracle / crawl /
+http). If none were discovered, say "none discovered".
 
 ---
 
 #### 7. Evidence Matrix
 
 Close your analysis for this host with the following table.
-Include ONLY findings that appear in Sections 2 and 6 above.
+Include ONLY items that appear in the Confirmed Findings (2) and Leads (3) sections above.
 
 ```
 ## Evidence Matrix
