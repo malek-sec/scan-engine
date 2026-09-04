@@ -84,6 +84,7 @@ _KATANA_RL            = Config.ACTIVE_KATANA_RL
 _KATANA_CONC          = Config.ACTIVE_KATANA_CONC
 _KATANA_TIMEOUT       = Config.ACTIVE_KATANA_TIMEOUT
 _KATANA_MAX_ENDPOINTS = Config.ACTIVE_KATANA_MAX_ENDPOINTS
+_KATANA_SCOPE         = Config.ACTIVE_KATANA_SCOPE
 
 # ffuf (directory / file fuzzing)
 _FFUF_RATE            = Config.ACTIVE_FFUF_RATE
@@ -241,7 +242,8 @@ class ActiveReconModule:
             "-d",       str(_KATANA_DEPTH),
             "-jc",                       # parse JS for endpoints
             "-kf",      "all",           # known files (robots.txt, sitemap.xml)
-            "-fs",      "fqdn",          # stay within the target FQDN scope
+            "-fs",      _KATANA_SCOPE,   # crawl scope; "rdn" follows apex->www redirects
+                                         # (was "fqdn", which missed the www target)
             "-rl",      str(_KATANA_RL),
             "-c",       str(_KATANA_CONC),
             "-timeout", "10",
