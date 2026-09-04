@@ -102,6 +102,47 @@ def _ev_hosts(hosts: list) -> dict:
     return {"level": "hosts_sample", "hosts": hosts}
 
 
+def _iter_httpx_objects(raw: str):
+    """Yield JSON objects from an httpx ``-o`` file, tolerating every shape httpx
+    emits:
+
+      * JSONL — one compact object per line (standard ``-json``);
+      * a single object or a JSON array (pretty-printed / small runs);
+      * the headless ``-ss`` shape, a ``{"timestamp":…, "link_request":[…]}``
+        object whose ``link_request`` array holds every sub-resource the browser
+        fetched (this is how a redirect target's assets — e.g. an apex that 301s
+        to ``www`` on a *different* registrable domain — are still captured).
+
+    Never raises; unparseable input simply yields nothing.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return
+    # Whole-file JSON first (object or array) — covers headless + pretty-printed.
+    try:
+        doc = json.loads(raw)
+        if isinstance(doc, list):
+            for o in doc:
+                if isinstance(o, dict):
+                    yield o
+        elif isinstance(doc, dict):
+            yield doc
+        return
+    except json.JSONDecodeError:
+        pass
+    # Fall back to JSONL — one object per line (standard httpx output).
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            o = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(o, dict):
+            yield o
+
+
 def normalize_target(raw: str, *, with_scheme: bool = True) -> str:
     """
     Single normalisation boundary for every target string in the pipeline.
@@ -616,13 +657,26 @@ class ReconModule:
         events.append(_ev("info", "HTTP response capture — parsing full headers + metadata"))
 
         responses: list = []
-        for line in json_out.read_text().strip().splitlines():
-            line = line.strip()
-            if not line:
-                continue
+        for obj in _iter_httpx_objects(json_out.read_text(errors="replace")):
             try:
-                obj = json.loads(line)
                 url = obj.get("url") or obj.get("input", "")
+                if not url and obj.get("link_request"):
+                    # Headless (-ss) output has no top-level url/headers; use the
+                    # first captured request as the page's response so downstream
+                    # stages still see the final (post-redirect) URL + status.
+                    first = next((r for r in obj["link_request"]
+                                  if isinstance(r, dict)), {})
+                    url = first.get("URL") or first.get("url", "")
+                    if url:
+                        responses.append({
+                            "url": url,
+                            "status_code": first.get("StatusCode") or first.get("status_code"),
+                            "title": "", "content_length": None, "content_type": "",
+                            "webserver": "", "ip": "", "cdn": False, "cdn_name": "",
+                            "cnames": [], "technologies": [], "response_headers": {},
+                            "redirect_chain": [],
+                        })
+                    continue
                 if not url:
                     continue
                 responses.append({
@@ -645,7 +699,7 @@ class ReconModule:
                         r.get("url", "") for r in obj.get("chain_status_codes", [])
                     ],
                 })
-            except (json.JSONDecodeError, Exception):
+            except Exception:
                 continue
 
         out_file = self.output_dir / "http_responses.json"
@@ -818,43 +872,58 @@ class ReconModule:
         self, live_hosts: list, historical_urls: list, events: list
     ) -> list:
         """
-        Compile a deduplicated list of JavaScript file URLs from two sources:
+        Compile a deduplicated list of JavaScript file URLs from every source:
           • historical_urls filtered to *.js
-          • httpx_out.json body/response fields (inline JS link extraction)
+          • httpx_out.json — the headless (-ss) "link_request" resources AND any
+            standard body/href fields (inline <script src> extraction)
+          • a catch-all sweep for absolute .js URLs anywhere in the httpx output
         Saves js_files.json for JS-Oracle to consume.
+
+        The link_request + catch-all sources are what make a redirecting apex work:
+        e.g. nour.net.sa 301s to www.nournet.sa, the headless browser fetches
+        www.nournet.sa's scripts, and those .js URLs are harvested here even though
+        a same-domain crawler scope would never follow the cross-domain redirect.
         """
         events.append(_ev("info", "JS discovery — extracting JavaScript file endpoints"))
 
         js_urls: set = set()
 
+        def _is_js(u: str) -> bool:
+            return u.split("?", 1)[0].lower().endswith(".js")
+
         # Source 1: historical URLs
         for url in historical_urls:
-            path = url.split("?")[0].lower()
-            if path.endswith(".js"):
+            if _is_js(url):
                 js_urls.add(url.split("?")[0])
 
-        # Source 2: scan httpx_out.json body/href fields
         json_out = self.output_dir / "httpx_out.json"
-        _js_re   = re.compile(r'["\']([^"\'<>\s]*\.js(?:\?[^"\'<>\s]*)?)["\']')
-
         if json_out.exists():
-            for line in json_out.read_text().strip().splitlines():
-                try:
-                    obj  = json.loads(line.strip())
-                    base = obj.get("url", "")
-                    # httpx may include body/response body content
-                    body = obj.get("body", "") or obj.get("response", "") or ""
-                    for match in _js_re.findall(body[:20_000]):
-                        if match.startswith("http"):
-                            js_urls.add(match.split("?")[0])
-                        elif match.startswith("/") and base:
-                            parsed = urllib.parse.urlparse(base)
-                            js_urls.add(
-                                f"{parsed.scheme}://{parsed.netloc}"
-                                + match.split("?")[0]
-                            )
-                except (json.JSONDecodeError, Exception):
-                    continue
+            raw      = json_out.read_text(errors="replace")
+            _rel_re  = re.compile(r'["\']([^"\'<>\s]*\.js(?:\?[^"\'<>\s]*)?)["\']')
+
+            # Source 2: structured parse (link_request resources, own url, body).
+            for obj in _iter_httpx_objects(raw):
+                base = obj.get("url") or obj.get("input") or ""
+                if base and _is_js(base):
+                    js_urls.add(base.split("?")[0])
+                for req in obj.get("link_request", []) or []:
+                    if not isinstance(req, dict):
+                        continue
+                    u = req.get("URL") or req.get("url") or ""
+                    if u and _is_js(u):
+                        js_urls.add(u.split("?")[0])
+                body = obj.get("body", "") or obj.get("response", "") or ""
+                for match in _rel_re.findall(body[:50_000]):
+                    if match.startswith("http"):
+                        js_urls.add(match.split("?")[0])
+                    elif match.startswith("/") and base:
+                        p = urllib.parse.urlparse(base)
+                        js_urls.add(f"{p.scheme}://{p.netloc}" + match.split("?")[0])
+
+            # Source 3: bulletproof catch-all — every absolute .js URL in the raw
+            # output, regardless of the JSON shape the httpx build produced.
+            for m in re.findall(r'https?://[^\s"\'<>\\]+?\.js(?:\?[^\s"\'<>\\]*)?', raw):
+                js_urls.add(m.split("?")[0])
 
         result = sorted(js_urls)
         out_file = self.output_dir / "js_files.json"
