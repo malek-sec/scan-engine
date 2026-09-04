@@ -40,6 +40,7 @@ from core import Colors, Config, DependencyChecker, Logger
 from core.recon import ReconModule
 from core.fingerprint import FingerprintModule
 from core.ai_advisor import AIAdvisorModule
+from core.js_oracle import JSOracle
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -479,6 +480,8 @@ class BountyHub:
         self.output_dir: Optional[Path] = None
         self.live_hosts: list = []
         self.fp_data:    list = []
+        self.js_files:   list = []
+        self.js_data:    dict = {}
 
     # ── Setup ─────────────────────────────────────────────────────────────
 
@@ -533,6 +536,9 @@ class BountyHub:
             )
 
         self.live_hosts = result["live_hosts"]
+        # Capture discovered JS URLs so the JS-Oracle stage (and its token
+        # pre-filter/purifier) can run in the CLI too, like the web pipeline.
+        self.js_files   = result.get("js_files", [])
         return self.live_hosts
 
     def _fingerprint(self, hosts: Optional[list] = None) -> list:
@@ -557,7 +563,36 @@ class BountyHub:
         self.fp_data = result["results"]
         return self.fp_data
 
-    def _advise(self, fp: Optional[list] = None) -> dict:
+    def _js_oracle(self, js_urls: Optional[list] = None) -> dict:
+        """
+        JS-Oracle stage — JavaScript analysis with the token pre-filter (purifier).
+
+        Mirrors the web pipeline's JS stage so the pre-filter runs in the CLI too.
+        Source order: an explicit list, else recon's discovered js_files, else a
+        js_files.json in the engagement dir. Degrades gracefully — skips cleanly
+        when js-oracle is not installed or when no JavaScript was found.
+        """
+        source = js_urls if js_urls is not None else self.js_files
+        if not source:
+            js_file = self.output_dir / "js_files.json"
+            if js_file.exists():
+                try:
+                    loaded = json.loads(js_file.read_text())
+                    source = loaded if isinstance(loaded, list) else []
+                    Logger.info(f"Loaded {len(source)} JS URL(s) from {js_file}")
+                except Exception:
+                    source = []
+        if not source:
+            Logger.info("JS-Oracle skipped — no JavaScript files to analyze")
+            return {}
+
+        Logger.section("JS-ORACLE — JavaScript Analysis  [Claude + token pre-filter]")
+        result = JSOracle(self.output_dir).execute(self.target, source)
+        render_events(result["events"])
+        self.js_data = result
+        return result
+
+    def _advise(self, fp: Optional[list] = None, js_data: Optional[dict] = None) -> dict:
         data = fp or self.fp_data
         if not data:
             fp_file = self.output_dir / Config.FILE_FINGERPRINT
@@ -568,10 +603,13 @@ class BountyHub:
                 Logger.error("No fingerprint data — run fingerprint first")
                 return {}
 
-        Logger.section("MODULE 3 — AI Vulnerability Advisor  [Gemini]")
+        # The advisor uses Anthropic Claude (see core/ai_advisor.py), not Gemini —
+        # the old "[Gemini]" label was cosmetic and misled key setup.
+        Logger.section("MODULE 3 — AI Vulnerability Advisor  [Claude]")
         DependencyChecker.check_optional()
 
-        result = AIAdvisorModule(data, self.output_dir).execute()
+        result = AIAdvisorModule(data, self.output_dir,
+                                 js_data=js_data or self.js_data).execute()
         render_events(result["events"])
 
         return result["analyses"]
@@ -615,8 +653,11 @@ class BountyHub:
             return
         Logger.success(f"Stage 2 complete — {len(fp_data)} host(s) fingerprinted")
 
-        # Stage 3 — AI Advisor
-        analyses = self._advise(fp_data)
+        # Stage 2.5 — JS-Oracle (JavaScript analysis + token pre-filter/purifier)
+        js_data = self._js_oracle(self.js_files)
+
+        # Stage 3 — AI Advisor (folds in JS-Oracle findings)
+        analyses = self._advise(fp_data, js_data=js_data)
         Logger.success(f"Stage 3 complete — AI analysis for {len(analyses)} host(s)")
 
         # Stage 4 — Optional report
@@ -668,6 +709,20 @@ class BountyHub:
             self._advise(preloaded)
             self._print_summary()
 
+        elif cmd == "jsoracle":
+            js_file = getattr(self.args, "js_file", None)
+            urls: Optional[list] = None
+            if js_file and Path(js_file).exists():
+                txt = Path(js_file).read_text()
+                try:
+                    loaded = json.loads(txt)
+                    urls = loaded if isinstance(loaded, list) else None
+                except json.JSONDecodeError:
+                    urls = [ln.strip() for ln in txt.splitlines()
+                            if ln.strip() and not ln.strip().startswith("#")]
+            self._js_oracle(urls)
+            self._print_summary()
+
         elif cmd == "report":
             self._report()
             self._print_summary()
@@ -707,8 +762,11 @@ examples:
       python3 BountyHub_v2/cli/main.py report
 
 environment variables:
-  GEMINI_API_KEY   Required for 'advise' and 'report'.
-                   export GEMINI_API_KEY='AIza...'
+  ANTHROPIC_API_KEY  Required for 'advise' + 'jsoracle' (Claude). The engine does
+                     NOT read js-oracle/.env — set it in this shell or scan-engine/.env.
+                     export ANTHROPIC_API_KEY='sk-ant-...'
+  GEMINI_API_KEY     Required only for the interactive 'report' (Gemini).
+                     export GEMINI_API_KEY='AIza...'
 
 required tools:
   Module 1: subfinder, httpx
@@ -761,6 +819,17 @@ disclaimer:
     p_adv.add_argument(
         "--fingerprint-file", "-f", metavar="FILE",
         help="Path to fingerprint.json from Module 2. Skips Modules 1-2.",
+    )
+
+    # ── jsoracle ──────────────────────────────────────────────────────────
+    p_js = sub.add_parser(
+        "jsoracle",
+        help="JS-Oracle — JavaScript analysis + token pre-filter (needs js-oracle installed)",
+    )
+    p_js.add_argument("--target", "-t", required=True, metavar="DOMAIN")
+    p_js.add_argument(
+        "--js-file", metavar="FILE",
+        help="js_files.json OR a newline-separated list of JS URLs to analyze.",
     )
 
     # ── report ────────────────────────────────────────────────────────────
