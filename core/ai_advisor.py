@@ -56,8 +56,10 @@ except ImportError:
 
 # ── Model constants ───────────────────────────────────────────────────────────
 
-# Claude Opus 4.8 — best reasoning / cost ratio for security analysis
-_CLAUDE_MODEL = "claude-opus-4-8"
+# Default Claude model for the advisor. Override with ANTHROPIC_MODEL (e.g.
+# claude-haiku-4-5 for a cheaper run) — read here, after the load_dotenv above,
+# so a value in a .env file applies too.
+_CLAUDE_MODEL = os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-opus-4-8"
 
 # Generous token budget: ~1,700 tokens per host for a 19-host scan
 _MAX_TOKENS = 32768

@@ -95,8 +95,12 @@ def _env_str(name: str, default: str) -> str:
 PREFILTER_ENABLED     = _env_bool("BOUNTYHUB_PREFILTER_ENABLED", True)
 _DEEP_THRESHOLD       = _env_int("BOUNTYHUB_PREFILTER_DEEP_THRESHOLD", 5)
 _CHEAP_THRESHOLD      = _env_int("BOUNTYHUB_PREFILTER_CHEAP_THRESHOLD", 1)
-_DEEP_MODEL           = _env_str("BOUNTYHUB_PREFILTER_DEEP_MODEL", "")            # "" -> js-oracle default (Opus)
-_CHEAP_MODEL          = _env_str("BOUNTYHUB_PREFILTER_CHEAP_MODEL", "claude-haiku-4-5")
+# Model per tier. Tier-specific env wins; else a global ANTHROPIC_MODEL (one knob
+# flips every tier to e.g. claude-haiku-4-5); else the built-in default. "" for
+# deep means "let js-oracle use its own default (Opus)".
+_ANTHROPIC_MODEL      = os.environ.get("ANTHROPIC_MODEL", "").strip()
+_DEEP_MODEL           = _env_str("BOUNTYHUB_PREFILTER_DEEP_MODEL", "") or _ANTHROPIC_MODEL
+_CHEAP_MODEL          = _env_str("BOUNTYHUB_PREFILTER_CHEAP_MODEL", "") or _ANTHROPIC_MODEL or "claude-haiku-4-5"
 _SLICE_ENABLED        = _env_bool("BOUNTYHUB_PREFILTER_SLICE_ENABLED", True)
 _SLICE_MIN_CHARS      = _env_int("BOUNTYHUB_PREFILTER_SLICE_MIN_CHARS", 80_000)
 _WINDOW_LINES         = _env_int("BOUNTYHUB_PREFILTER_WINDOW_LINES", 40)
