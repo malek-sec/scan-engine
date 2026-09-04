@@ -162,6 +162,20 @@ class TestVendorDedup(unittest.TestCase):
                   "react.production.min.js", "tslib.es6-NPRqQeXK.js"):
             self.assertTrue(_lib_family("https://x/" + u)[1], u)
 
+    def test_self_hosted_vendor_libs_are_flagged(self):
+        """Compound/versioned self-hosted libs must rank as vendor so the analysis
+        budget goes to app code (the eservices.nour.net.sa top-8 regression)."""
+        for u in ("greensock-animation.gsap.min.js", "greensock-TimelineMax.min.js",
+                  "greensock-ScrollToPlugin.min.js", "easing-easing.js",
+                  "OwlCarousel2-2.2.1-owl.carousel.js", "fSelect.js",
+                  "aos.js", "swiper-bundle.min.js", "isotope.pkgd.min.js"):
+            self.assertTrue(_lib_family("https://x/" + u)[1], u)
+
+    def test_custom_files_stay_app_specific_after_expansion(self):
+        for u in ("checkout-flow-A1b2C3.js", "booking-widget.js",
+                  "socketEvents-C4PXYrnS.js", "index-CGupvGYo.js"):
+            self.assertFalse(_lib_family("https://x/" + u)[1], u)
+
     def test_app_specific_files_are_not_vendor(self):
         for u in ("index-CGupvGYo.js", "socketEvents-C4PXYrnS.js",
                   "AnimateOnScroll-Dwb7dOyl.js"):
