@@ -163,6 +163,28 @@ _VENDOR_LIBS = frozenset({
     "datatables", "highcharts", "chart", "tslib", "core-js", "regenerator",
 })
 
+# Broader "is this a self-hosted vendor library?" test, used for RANKING so the
+# analysis budget goes to APP-SPECIFIC code. The exact set above only collapses
+# duplicate copies; it misses libraries whose filename embeds a compound name or
+# version the set never lists (greensock/gsap, owl-carousel, easing, fSelect,
+# TimelineMax, ScrollToPlugin, aos, swiper, …). Matched on filename word
+# boundaries to keep false positives on custom code low; a false positive only
+# de-prioritises a file, it never drops it.
+_VENDOR_LIB_RE = re.compile(
+    r"(?:^|[/_.\-])(?:"
+    r"jquery|bootstrap|popper|angular|react|vue|lodash|underscore|moment|backbone|"
+    r"ember|prototype|mootools|modernizr|axios|zepto|"
+    r"gsap|greensock|tweenmax|tweenlite|timelinemax|scrolltoplugin|scrollmagic|"
+    r"owl[.\-]?carousel|slick|swiper|select2|selectwoo|fselect|"
+    r"aos|wow|parallax|isotope|masonry|imagesloaded|waypoints|headroom|lazysizes|"
+    r"hammer|velocity|anime|splide|flickity|glide|magnific|fancybox|lightbox|easing|"
+    r"highcharts|chartjs|datatables|handlebars|mustache|knockout|requirejs|normalize|"
+    r"polyfill|regenerator|core[.\-]?js|tslib|zxcvbn|hoverintent|clipboard|"
+    r"fontawesome|font[.\-]?awesome|cufon|yui|dojo"
+    r")(?:[.\-]|\d|$)",
+    re.IGNORECASE,
+)
+
 # Build hashes / version suffixes to strip when deriving a library family:
 #   jquery-1.4.2.min.js        -> jquery
 #   jquery-ui-1.8.22.min.js    -> jquery-ui
@@ -272,7 +294,10 @@ def _lib_family(url: str) -> tuple:
     family = (stem or name).lower().strip("-._") or name.lower()
 
     base = family.replace("_", "-")
-    return (family, base in _VENDOR_LIBS)
+    # Vendor if the exact family is a known lib OR the filename matches the
+    # broader self-hosted-library regex (greensock, owl-carousel, easing, fSelect…).
+    is_vendor = base in _VENDOR_LIBS or bool(_VENDOR_LIB_RE.search(name.lower()))
+    return (family, is_vendor)
 
 
 def _probe_liveness(url: str) -> dict:
