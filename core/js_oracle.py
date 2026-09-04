@@ -126,6 +126,14 @@ _JS_ORACLE_MODE = (os.environ.get("JS_ORACLE_MODE", "subprocess").strip().lower(
                    or "subprocess")
 _JS_ORACLE_URL  = os.environ.get("JS_ORACLE_URL", "http://127.0.0.1:8787").strip()
 
+# When the liveness probe rules out EVERY candidate, that is usually a BLOCKED
+# probe (WAF / Cloudflare challenge / timeout / reset) rather than genuinely dead
+# files — a browser-like crawler (katana) reached them moments ago. Default on:
+# fall back to analyzing the top candidates in that case. Set to 0 for the strict
+# "0 live -> analyze nothing" behaviour.
+_LIVENESS_FALLBACK = os.environ.get(
+    "JS_ORACLE_LIVENESS_FALLBACK", "1").strip().lower() not in ("0", "false", "no", "off")
+
 # ── Limits ────────────────────────────────────────────────────────────────────
 
 _MAX_JS_FILES     = 8     # maximum number of JS files to ANALYZE per scan
@@ -911,21 +919,47 @@ class JSOracle:
         if archived_records:
             self._persist_archived(archived_records, events)
 
-        if not live_records:
-            events.append(_ev("warning",
-                f"JS-Oracle: none of the {len(candidates)} candidate file(s) are "
-                f"still served as JavaScript — nothing to analyze. "
-                f"{len(archived_records)} archived endpoint(s) parked for manual "
-                f"review; this is NOT evidence the target is clean."
-            ))
-            return _empty
+        if live_records:
+            selected   = [r["url"] for r in live_records[:_MAX_JS_FILES]]
+            live_count = len(live_records)
+            if live_count > _MAX_JS_FILES:
+                events.append(_ev("info",
+                    f"JS-Oracle: {live_count} live file(s) found — analyzing "
+                    f"the top {_MAX_JS_FILES} by priority"
+                ))
+        else:
+            # 0 live out of many candidates almost always means the liveness PROBE
+            # was blocked (WAF / Cloudflare challenge / timeout / reset), not that
+            # every file is dead — katana reached them moments ago. Distinguish a
+            # blocked probe (unreachable / 401/403/405/429 / 5xx) from a genuine
+            # dead SPA catch-all (clean "200 but not JavaScript" / 404) and, when
+            # it looks blocked, analyze the top candidates anyway. js-oracle's own
+            # fetch skips any that truly 404.
+            def _looks_blocked(r: dict) -> bool:
+                st = r.get("status")
+                if not isinstance(st, int):
+                    return True                          # timeout / connection error
+                return st in (401, 403, 405, 429) or st >= 500
 
-        selected = [r["url"] for r in live_records[:_MAX_JS_FILES]]
-        if len(live_records) > _MAX_JS_FILES:
-            events.append(_ev("info",
-                f"JS-Oracle: {len(live_records)} live file(s) found — analyzing "
-                f"the top {_MAX_JS_FILES} by priority"
-            ))
+            blocked = sum(1 for r in archived_records if _looks_blocked(r))
+            if (_LIVENESS_FALLBACK and candidates
+                    and blocked >= max(1, len(archived_records) // 2)):
+                selected   = candidates[:_MAX_JS_FILES]
+                live_count = 0
+                events.append(_ev("warning",
+                    f"JS liveness — 0/{len(candidates)} passed, but {blocked} look like a "
+                    f"BLOCKED probe (WAF/Cloudflare/timeout), not dead files. Falling back "
+                    f"to analyzing the top {len(selected)} candidate(s); js-oracle skips "
+                    f"any that truly 404. (Set JS_ORACLE_LIVENESS_FALLBACK=0 to disable.)"
+                ))
+            else:
+                events.append(_ev("warning",
+                    f"JS-Oracle: none of the {len(candidates)} candidate file(s) are "
+                    f"still served as JavaScript — nothing to analyze. "
+                    f"{len(archived_records)} archived endpoint(s) parked for manual "
+                    f"review; this is NOT evidence the target is clean."
+                ))
+                return _empty
 
         # ── Pre-filter ("purifier") — content-level token triage ──────────────
         # BEFORE any LLM call: score each live file, SKIP the ones with zero app
@@ -1033,7 +1067,7 @@ class JSOracle:
             "business_logic": business_logic,
             "highest_severity": highest,
             "js_files_analyzed": len(llm_results),
-            "js_live_count":     len(live_records),
+            "js_live_count":     live_count,
             "archived_count":    len(archived_records),
         }, indent=2))
 
@@ -1066,7 +1100,7 @@ class JSOracle:
             "raw_findings_count": raw_count,
             "highest_severity":   highest,
             "js_files_analyzed":  len(llm_results),
-            "js_live_count":      len(live_records),
+            "js_live_count":      live_count,
             "archived_endpoints": archived_records,
             "archived_count":     len(archived_records),
         }

@@ -365,6 +365,35 @@ class TestExecuteGating(unittest.TestCase):
         r = self._run({"https://x.com/a.js": False})
         self.assertNotEqual(r["status"], "ok")
 
+    def test_blocked_probe_falls_back_to_analyzing(self):
+        """0 live because the probe was BLOCKED (403/timeout), not dead files —
+        the Cloudflare-fronted case: analyze the top candidates anyway."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        out = Path(tmp.name)
+        urls = ["https://x.com/a.js", "https://x.com/b.js"]
+        analyzed = []
+
+        def fake_probe(u):
+            return _rec(u, False, status=403, ctype="text/html", reason="blocked")
+
+        def fake_analyze(url, target, out_dir, events):
+            analyzed.append(url)
+            return {"endpoints": [], "secrets": [], "auth_logic": [],
+                    "suspicious_logic": [{"description": "x", "severity": "info",
+                                          "evidence": "e"}]}
+
+        with mock.patch.object(JSOracle, "_check_available", return_value=True), \
+             mock.patch("core.js_oracle._probe_liveness", side_effect=fake_probe), \
+             mock.patch("core.js_prefilter._fetch_js_source", return_value=None), \
+             mock.patch.object(JSOracle, "_analyze_url", side_effect=fake_analyze):
+            r = JSOracle(out).execute("x.com", urls)
+
+        self.assertEqual(sorted(analyzed), urls,
+                         "blocked-probe files must be analyzed via the fallback")
+        text = " ".join(e["msg"] for e in r["events"])
+        self.assertIn("BLOCKED probe", text)
+
     def test_analysis_cap_applies_to_live_files_only(self):
         """
         The cap must be applied AFTER liveness. Applying it first is what let
