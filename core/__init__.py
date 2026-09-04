@@ -198,6 +198,11 @@ class Config:
     ACTIVE_KATANA_CONC:         int = _env_int("BOUNTYHUB_ACTIVE_KATANA_CONC", 10)
     ACTIVE_KATANA_TIMEOUT:      int = _env_int("BOUNTYHUB_ACTIVE_KATANA_TIMEOUT", 300)
     ACTIVE_KATANA_MAX_ENDPOINTS:int = _env_int("BOUNTYHUB_ACTIVE_KATANA_MAX_ENDPOINTS", 3000)
+    # katana crawl field-scope: dn | rdn | fqdn. Default "rdn" (root domain) so an
+    # apex->www redirect (e.g. example.com -> www.example.com) is still crawled;
+    # "fqdn" restricts to the exact host and silently misses the www redirect
+    # target — the bug that made JS discovery return nothing on WordPress sites.
+    ACTIVE_KATANA_SCOPE:        str = _env_str("BOUNTYHUB_ACTIVE_KATANA_SCOPE", "rdn")
 
     # ffuf (directory / file fuzzing)
     ACTIVE_FFUF_RATE:        int = _env_int("BOUNTYHUB_ACTIVE_FFUF_RATE", 60)
