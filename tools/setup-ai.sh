@@ -56,6 +56,9 @@ case "$PROFILE" in
   balanced) ADV="claude-opus-4-8";  DEEP="claude-opus-4-8";  CHEAP="claude-haiku-4-5"; EFFORT="medium" ;;
   strong)   ADV="claude-opus-4-8";  DEEP="claude-opus-4-8";  CHEAP="claude-opus-4-8";  EFFORT="high" ;;
 esac
+# The advisor WRITES the intelligence report — ALWAYS Opus, independent of the
+# JS-analysis profile above (report quality matters most).
+ADVISOR="claude-opus-4-8"
 
 _set_env() {   # <file> <KEY> <VALUE> — replace the line for KEY, or append it
   local f="$1" k="$2" v="$3"
@@ -73,9 +76,10 @@ for tool in js-oracle scan-engine bountyhub; do
   _set_env "$f" ANTHROPIC_API_KEY "$KEY"
   _set_env "$f" ANTHROPIC_MODEL   "$ADV"
   _set_env "$f" ANTHROPIC_EFFORT  "$EFFORT"
-  if [ "$tool" != "js-oracle" ]; then     # pre-filter tiers live in engine/web only
+  if [ "$tool" != "js-oracle" ]; then     # pre-filter tiers + advisor live in engine/web
     _set_env "$f" BOUNTYHUB_PREFILTER_DEEP_MODEL  "$DEEP"
     _set_env "$f" BOUNTYHUB_PREFILTER_CHEAP_MODEL "$CHEAP"
+    _set_env "$f" BOUNTYHUB_ADVISOR_MODEL         "$ADVISOR"
   fi
   chmod 600 "$f"
   echo "wrote  $f"
@@ -88,10 +92,12 @@ export ANTHROPIC_MODEL="$ADV"
 export ANTHROPIC_EFFORT="$EFFORT"
 export BOUNTYHUB_PREFILTER_DEEP_MODEL="$DEEP"
 export BOUNTYHUB_PREFILTER_CHEAP_MODEL="$CHEAP"
+export BOUNTYHUB_ADVISOR_MODEL="$ADVISOR"
 
 echo ""
 echo "profile = $PROFILE"
-echo "  advisor + js-oracle default : $ADV   (effort=$EFFORT)"
+echo "  report writer (advisor)     : $ADVISOR   (always Opus)"
+echo "  js-oracle default / effort  : $ADV / $EFFORT"
 echo "  pre-filter deep / cheap     : $DEEP / $CHEAP"
 echo "  key=${KEY:0:8}*** (masked)  |  .env updated (chmod 600) + exported to this shell."
 echo "Switch anytime:  source $ROOT/scan-engine/tools/setup-ai.sh {cheap|balanced|strong}"
