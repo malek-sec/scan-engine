@@ -56,10 +56,11 @@ except ImportError:
 
 # ── Model constants ───────────────────────────────────────────────────────────
 
-# Default Claude model for the advisor. Override with ANTHROPIC_MODEL (e.g.
-# claude-haiku-4-5 for a cheaper run) — read here, after the load_dotenv above,
-# so a value in a .env file applies too.
-_CLAUDE_MODEL = os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-opus-4-8"
+# Model for the advisor — the component that WRITES the intelligence report.
+# Pinned to Opus and DECOUPLED from ANTHROPIC_MODEL, so the final report stays
+# high-quality even under a cheap/balanced JS-analysis profile. Change it only
+# via the dedicated BOUNTYHUB_ADVISOR_MODEL env var.
+_CLAUDE_MODEL = os.environ.get("BOUNTYHUB_ADVISOR_MODEL", "").strip() or "claude-opus-4-8"
 
 # Generous token budget: ~1,700 tokens per host for a 19-host scan
 _MAX_TOKENS = 32768
