@@ -111,5 +111,41 @@ class TestExecuteOfflineMakesNoLLMCall(unittest.TestCase):
         self.assertIn("Recon Report", md)
 
 
+class TestReportSections(unittest.TestCase):
+    """Source maps are the headline lead on a bundled SPA — they get their own
+    section (resolved to full URLs), not buried in 'business logic'. Archived
+    files show WHY they were parked so a 200-but-HTML never looks live."""
+
+    def test_source_maps_promoted_to_own_section(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t)
+            (d / "js_oracle_findings.json").write_text(json.dumps({
+                "endpoints": [], "secrets": [], "auth_logic": [], "sinks": [],
+                "business_logic": [{
+                    "description": "Source map referenced (main.abc.js.map) — may expose original source",
+                    "severity": "info",
+                    "evidence": "//# sourceMappingURL=main.abc.js.map",
+                }],
+                "highest_severity": "info", "js_live_count": 1, "archived_count": 0,
+            }))
+            (d / "live_hosts.txt").write_text("https://x.com\n")
+            md = build_report(d)
+            self.assertIn("Source Maps", md)
+            self.assertIn("https://x.com/main.abc.js.map", md)   # resolved to full URL
+            self.assertNotIn("Business-Logic Concerns", md)      # moved out of business-logic
+
+    def test_archived_reason_is_shown(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t)
+            (d / "js_oracle_findings.json").write_text(json.dumps(
+                {"endpoints": [], "secrets": [], "highest_severity": "none"}))
+            (d / "js_archived_endpoints.json").write_text(json.dumps([
+                {"url": "https://x.com/old.js", "status": 200,
+                 "reason": "content-type 'text/html', not JavaScript"},
+            ]))
+            md = build_report(d)
+            self.assertIn("not JavaScript", md)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

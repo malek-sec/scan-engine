@@ -106,6 +106,59 @@ def _fmt_auth(auth: list, out: list) -> None:
     out.append("")
 
 
+def _is_sourcemap(x: dict) -> bool:
+    return (str(x.get("description", "")).startswith("Source map referenced")
+            or "sourcemappingurl=" in str(x.get("evidence", "")).lower())
+
+
+def _map_name(item: dict) -> str:
+    ev = str(item.get("evidence", ""))
+    if "sourceMappingURL=" in ev:
+        return ev.split("sourceMappingURL=", 1)[1].strip().strip("\"'")
+    desc = str(item.get("description", ""))
+    if "(" in desc and ")" in desc:
+        return desc[desc.find("(") + 1:desc.rfind(")")].strip()
+    return ""
+
+
+def _fmt_sourcemaps(maps: list, base: Path, out: list) -> None:
+    if not maps:
+        return
+    host = ""
+    live = _load_lines(base / "live_hosts.txt") or _load_lines(base / "active_hosts.txt")
+    if live:
+        host = live[0].rstrip("/")
+    out.append(f"## 🗺️ Source Maps — likely source-code disclosure ({len(maps)})\n")
+    out.append("Each live bundle references a `.map`. If it is publicly reachable it exposes the "
+               "**original source** (often readable TS/JS with internal routes, comments and "
+               "hidden endpoints) — a common information-disclosure finding and a goldmine for "
+               "manual review. **Verify each returns 200 and contains a `sources` array before "
+               "reporting, and confirm it is in scope.**\n")
+    urls: list = []
+    for m in maps:
+        name = _map_name(m)
+        if not name:
+            continue
+        full = name if name.startswith("http") else (f"{host}/{name.lstrip('/')}" if host else name)
+        urls.append(full)
+        out.append(f"- `{full}`")
+    out.append("")
+    if urls:
+        out.append("Check accessibility (a `200` with JSON `\"sources\"` = exposed source):")
+        out.append("```bash")
+        out.append("urls=(")
+        for u in urls:
+            out.append(f'  "{u}"')
+        out.append(")")
+        out.append('for u in "${urls[@]}"; do printf \'[%s] %s\\n\' '
+                   '"$(curl -sk -o /dev/null -w \'%{http_code}\' "$u")" "$u"; done')
+        out.append("```")
+        out.append("Then reconstruct any that return 200, e.g. `npx source-map-explorer` or "
+                   "`curl -sk <map> | npx sourcemapper -output ./src` — and read the recovered "
+                   "code for real bugs.")
+        out.append("")
+
+
 def _fmt_suspicious(items: list, title: str, out: list) -> None:
     if not items:
         return
@@ -128,12 +181,20 @@ def _fmt_archived(dir_: Path, out: list) -> None:
     if not rows:
         return
     out.append(f"## 🗄️ Archived JS — NOT analyzed, manual review ({len(rows)})\n")
-    out.append("Referenced (historical/blocked) but not served as live JS at scan time. "
-               "Not evidence the target is clean — fetch and review manually.\n")
+    out.append("Referenced but not served as live JavaScript at scan time — the `reason` below "
+               "says why. A `200` here usually means an SPA catch-all returned `index.html` "
+               "(HTML, not JS) for a deleted bundle, so it was parked. **If any reason says the "
+               "content-type IS JavaScript, that file was wrongly skipped — analyze it manually.** "
+               "Not evidence the target is clean.\n")
     for r in rows[:60]:
-        u = r.get("url") if isinstance(r, dict) else r
-        st = f" (status {r.get('status')})" if isinstance(r, dict) and r.get("status") is not None else ""
-        out.append(f"- `{u}`{st}")
+        if isinstance(r, dict):
+            u = r.get("url", "")
+            reason = r.get("reason") or r.get("content_type") or ""
+            if not reason and r.get("status") is not None:
+                reason = f"status {r.get('status')}"
+            out.append(f"- `{u}`" + (f" — {reason}" if reason else ""))
+        else:
+            out.append(f"- `{r}`")
     if len(rows) > 60:
         out.append(f"- … and {len(rows) - 60} more")
     out.append("")
@@ -179,6 +240,13 @@ def build_report(output_dir) -> str:
     highest = data.get("highest_severity", "none")
     total = len(endpoints) + len(secrets) + len(auth) + len(sinks) + len(biz)
 
+    # Pull source-map references out of the suspicious buckets into their own
+    # section — on a webpack/Angular app an exposed .map is the headline lead,
+    # not an "info" business-logic note.
+    source_maps = [x for x in (sinks + biz) if _is_sourcemap(x)]
+    sinks = [x for x in sinks if not _is_sourcemap(x)]
+    biz = [x for x in biz if not _is_sourcemap(x)]
+
     out: list = []
     out.append(f"# Recon Report — {base.name}")
     out.append("")
@@ -189,17 +257,22 @@ def build_report(output_dir) -> str:
     out.append("")
     out.append(f"- **Total findings:** {total}")
     out.append(f"- **Highest severity:** {_sev_badge(highest) if highest != 'none' else 'none'}")
-    out.append(f"- Endpoints: {len(endpoints)} · Secrets: {len(secrets)} · "
-               f"Auth: {len(auth)} · Sinks: {len(sinks)} · Business-logic: {len(biz)}")
-    if "js_files_analyzed" in data:
-        out.append(f"- JS files analyzed: {data.get('js_files_analyzed')} "
-                   f"(live: {data.get('js_live_count','?')}, archived parked: {data.get('archived_count','?')})")
+    out.append(f"- Endpoints: {len(endpoints)} · Secrets: {len(secrets)} · Auth: {len(auth)} · "
+               f"Source maps: {len(source_maps)} · Sinks: {len(sinks)} · Business-logic: {len(biz)}")
+    if "js_live_count" in data or "js_files_analyzed" in data:
+        llm_n = data.get("js_files_analyzed", 0)
+        js_line = (f"- JS files: {data.get('js_live_count','?')} live (mined for findings) · "
+                   f"{data.get('archived_count','?')} archived / not served as JS (parked)")
+        if llm_n:
+            js_line += f" · {llm_n} deep-analyzed by AI"
+        out.append(js_line)
     out.append("")
     out.append("> ⚠️ Program policy: raw tool output is **not** an acceptable report. "
                "Every item below is a *lead* — reproduce manually and attach a PoC before submitting.")
     out.append("")
 
     _fmt_secrets(secrets, out)
+    _fmt_sourcemaps(source_maps, base, out)
     _fmt_endpoints(endpoints, out)
     _fmt_auth(auth, out)
     _fmt_suspicious(sinks, "Dangerous Sinks (XSS / injection / eval)", out)
