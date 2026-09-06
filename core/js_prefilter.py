@@ -65,8 +65,8 @@ import urllib.request
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
-__all__ = ["Decision", "build_plan", "score_content", "slice_content",
-           "build_offline", "PREFILTER_ENABLED"]
+__all__ = ["Decision", "build_plan", "build_offline_plan", "score_content",
+           "slice_content", "build_offline", "PREFILTER_ENABLED"]
 
 
 # ── env helpers (kept local so the module is standalone / unit-testable) ───────
@@ -581,3 +581,44 @@ def build_plan(urls: list[str], target: str, events: list | None = None,
         + f" — ~{chars_saved // 4:,} est. input token(s) saved vs. analyzing "
           f"every file whole."))
     return plan
+
+
+def build_offline_plan(urls: list[str], target: str, events: list | None = None,
+                       fetch=None) -> dict[str, dict | None]:
+    """Return {url: offline_findings|None} using ONLY the free deterministic pass.
+
+    Unlike ``build_plan`` this makes no routing decision and never marks a file
+    for the LLM — it fetches each URL and runs ``build_offline`` regardless of
+    ``PREFILTER_ENABLED``. This is JS-Oracle's offline ($0) mode: full recon
+    value (endpoints / secrets / source maps) with zero API cost. Deterministic;
+    ``fetch`` is injectable for tests (defaults to ``_fetch_js_source``).
+    """
+    if events is None:
+        events = []
+    getter = fetch or _fetch_js_source
+    out: dict[str, dict | None] = {}
+    seen: set = set()
+    total = 0
+    for url in urls:
+        content = getter(url)
+        if content is None:
+            events.append(_ev("warning",
+                f"JS offline: {url} — could not fetch, skipped (no findings)."))
+            continue
+        h = hashlib.sha256(content.encode("utf-8", "replace")).hexdigest()
+        if h in seen:
+            events.append(_ev("info",
+                f"JS offline: {url} — identical to an already-scanned file, skipped."))
+            continue
+        seen.add(h)
+        offline = build_offline(content, target)
+        has = _has_findings(offline)
+        out[url] = offline if has else None
+        n = (len(offline["endpoints"]) + len(offline["secrets"])
+             + len(offline["suspicious_logic"])) if has else 0
+        total += n
+        events.append(_ev("info", f"JS offline: {url} — {n} deterministic finding(s)."))
+    events.append(_ev("success",
+        f"JS offline pass: {len(urls)} file(s) scanned, {total} finding(s) "
+        f"extracted with NO LLM call (=$0)."))
+    return out
