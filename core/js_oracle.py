@@ -83,7 +83,7 @@ from urllib.parse import urlparse
 # The pre-filter ("purifier") — content-level triage that runs between liveness
 # and the LLM call, so Opus tokens are spent only on files (and only the regions
 # of files) that a free deterministic pass shows are worth it.
-from core.js_prefilter import build_plan
+from core.js_prefilter import build_plan, build_offline_plan, Decision
 
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -133,6 +133,12 @@ _JS_ORACLE_URL  = os.environ.get("JS_ORACLE_URL", "http://127.0.0.1:8787").strip
 # "0 live -> analyze nothing" behaviour.
 _LIVENESS_FALLBACK = os.environ.get(
     "JS_ORACLE_LIVENESS_FALLBACK", "1").strip().lower() not in ("0", "false", "no", "off")
+
+# OFFLINE mode: run the free deterministic pass ONLY (regex endpoints / secrets /
+# source maps) and never call the LLM — a $0 analysis. Callers pass offline=True
+# per-scan (BountyHub's FREE mode); this env var forces it globally as a default.
+_JS_ORACLE_OFFLINE = os.environ.get(
+    "JS_ORACLE_OFFLINE", "0").strip().lower() in ("1", "true", "yes", "on")
 
 # ── Limits ────────────────────────────────────────────────────────────────────
 
@@ -864,11 +870,16 @@ class JSOracle:
 
     # ── Public interface ──────────────────────────────────────────────────
 
-    def execute(self, target: str, js_urls: list) -> dict:
+    def execute(self, target: str, js_urls: list, offline: bool = False) -> dict:
         """
         Run JS-Oracle against the discovered JS files and return merged findings.
         Never raises — errors are logged as events and the module degrades gracefully.
+
+        offline=True (or env JS_ORACLE_OFFLINE=1) runs the free deterministic pass
+        ONLY — regex endpoints/secrets/source maps, NO LLM call, $0. Used by
+        BountyHub's FREE scan mode so routine recon never spends API credit.
         """
+        offline = offline or _JS_ORACLE_OFFLINE
         events:      list = []
         _empty = {
             "status":             "skipped",
@@ -967,8 +978,19 @@ class JSOracle:
         # a cheap or premium model, and slice oversized bundles down to their hot
         # regions. Fail-open: a file the pre-filter cannot read falls through to a
         # whole-file deep analysis (legacy behaviour), never dropped.
-        plan = build_plan(selected, target, events)
+        #
+        # OFFLINE ($0) mode: build an all-"skip" plan carrying the free offline
+        # findings, so the loop below collects them and makes ZERO LLM calls.
         self._analysis_override: dict = {}
+        if offline:
+            events.append(_ev("info",
+                "JS-Oracle OFFLINE mode — deterministic regex analysis only, NO "
+                "LLM call (=$0). Re-run in AI mode for deep Claude analysis."))
+            off_map = build_offline_plan(selected, target, events)
+            plan = {u: Decision(url=u, route="skip", offline=off_map.get(u))
+                    for u in selected}
+        else:
+            plan = build_plan(selected, target, events)
         analyzable = [u for u in selected
                       if plan.get(u) is None or plan[u].route != "skip"]
 
@@ -1075,8 +1097,10 @@ class JSOracle:
         # successfully; skipped files are intentional and never count against it.
         status = "ok" if len(llm_results) == len(analyzable) else "partial"
 
+        analyzed_label = (f"offline (deterministic, $0): {len(selected)}"
+                          if offline else f"live JS analyzed: {len(llm_results)}")
         events.append(_ev("success",
-            f"Module 4 complete — live JS analyzed: {len(llm_results)}"
+            f"Module 4 complete — {analyzed_label}"
             f" | archived JS parked: {len(archived_records)}"
             f" — {raw_count} finding(s), highest severity: {highest} "
             f"→ js_oracle_findings.json"
