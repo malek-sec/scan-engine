@@ -586,8 +586,10 @@ class BountyHub:
             Logger.info("JS-Oracle skipped — no JavaScript files to analyze")
             return {}
 
-        Logger.section("JS-ORACLE — JavaScript Analysis  [Claude + token pre-filter]")
-        result = JSOracle(self.output_dir).execute(self.target, source)
+        offline = getattr(self.args, "offline", False)
+        label = "offline regex pass, $0" if offline else "Claude + token pre-filter"
+        Logger.section(f"JS-ORACLE — JavaScript Analysis  [{label}]")
+        result = JSOracle(self.output_dir).execute(self.target, source, offline=offline)
         render_events(result["events"])
         self.js_data = result
         return result
@@ -655,6 +657,22 @@ class BountyHub:
 
         # Stage 2.5 — JS-Oracle (JavaScript analysis + token pre-filter/purifier)
         js_data = self._js_oracle(self.js_files)
+
+        # Stage 3 — Reporting. FREE mode: deterministic offline report ($0).
+        # AI mode: the Opus advisor (spends credit).
+        if getattr(self.args, "offline", False):
+            from core.offline_report import build_report
+            report_md = build_report(self.output_dir)
+            out_file = self.output_dir / "offline_report.md"
+            try:
+                out_file.write_text(report_md, encoding="utf-8")
+            except Exception as exc:
+                Logger.error(f"Could not write {out_file}: {exc}")
+            Logger.success(f"FREE mode — report generated offline ($0): {out_file}")
+            Logger.info("Want a Claude synthesis of these SAME findings later? Run: "
+                        f"advise --target {self.target}  (one Opus call, reuses saved findings)")
+            self._print_summary()
+            return
 
         # Stage 3 — AI Advisor (folds in JS-Oracle findings)
         analyses = self._advise(fp_data, js_data=js_data)
@@ -790,6 +808,12 @@ disclaimer:
         "--target", "-t", required=True, metavar="DOMAIN",
         help="Target domain, e.g. example.com or sub.example.com",
     )
+    p_full.add_argument(
+        "--offline", action="store_true",
+        help="FREE mode ($0): analyze JS with the deterministic regex pass only "
+             "(no LLM) and write the report offline (offline_report.md). Skips the "
+             "paid AI advisor — run 'advise' later if you want a Claude synthesis.",
+    )
 
     # ── recon ─────────────────────────────────────────────────────────────
     p_recon = sub.add_parser(
@@ -812,7 +836,7 @@ disclaimer:
     # ── advise ────────────────────────────────────────────────────────────
     p_adv = sub.add_parser(
         "advise",
-        help="Module 3 — AI vulnerability analysis (requires GEMINI_API_KEY)",
+        help="Module 3 — AI vulnerability analysis (Claude/Opus; needs ANTHROPIC_API_KEY + credit)",
     )
     p_adv.add_argument("--target", "-t", metavar="DOMAIN",
                        help="Target domain (for output directory context)")
@@ -830,6 +854,10 @@ disclaimer:
     p_js.add_argument(
         "--js-file", metavar="FILE",
         help="js_files.json OR a newline-separated list of JS URLs to analyze.",
+    )
+    p_js.add_argument(
+        "--offline", action="store_true",
+        help="FREE mode ($0): deterministic regex pass only — no LLM call.",
     )
 
     # ── report ────────────────────────────────────────────────────────────
