@@ -62,8 +62,15 @@ except ImportError:
 # via the dedicated BOUNTYHUB_ADVISOR_MODEL env var.
 _CLAUDE_MODEL = os.environ.get("BOUNTYHUB_ADVISOR_MODEL", "").strip() or "claude-opus-4-8"
 
-# Generous token budget: ~1,700 tokens per host for a 19-host scan
-_MAX_TOKENS = 32768
+# Output-token cap for the report — the main worst-case cost driver on Opus.
+# Default is generous (~1,700 tokens per host for a 19-host scan); env-tunable so a
+# cost-conscious run can bound the spend, e.g. BOUNTYHUB_ADVISOR_MAX_TOKENS=8000.
+try:
+    _MAX_TOKENS = int(os.environ.get("BOUNTYHUB_ADVISOR_MAX_TOKENS", "").strip() or 32768)
+    if _MAX_TOKENS <= 0:
+        _MAX_TOKENS = 32768
+except (ValueError, TypeError):
+    _MAX_TOKENS = 32768
 
 # Retry config for transient API errors (overload / connection issues)
 _MAX_RETRIES  = 2
