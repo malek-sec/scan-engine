@@ -9,7 +9,11 @@ envelopes that this module renders into coloured terminal output.
 
 Usage
 -----
-  python3 BountyHub_v2/cli/main.py full          --target example.com
+  # Comprehensive deep scan, FREE ($0): recon + active recon (katana/ffuf/nuclei)
+  # + fingerprint + JS analysis + offline report — the whole web pipeline, one cmd.
+  python3 BountyHub_v2/cli/main.py full          --target example.com --offline
+  python3 BountyHub_v2/cli/main.py full          --target example.com            # + AI advisor (Opus)
+  python3 BountyHub_v2/cli/main.py full          --target example.com --fast      # passive only (skip active recon)
   python3 BountyHub_v2/cli/main.py recon         --target example.com
   python3 BountyHub_v2/cli/main.py fingerprint   --target example.com
   python3 BountyHub_v2/cli/main.py advise        --target example.com
@@ -39,6 +43,7 @@ if str(_ROOT) not in sys.path:
 from core import Colors, Config, DependencyChecker, Logger
 from core.recon import ReconModule
 from core.fingerprint import FingerprintModule
+from core.active_recon import ActiveReconModule
 from core.ai_advisor import AIAdvisorModule
 from core.js_oracle import JSOracle
 
@@ -482,6 +487,8 @@ class BountyHub:
         self.fp_data:    list = []
         self.js_files:   list = []
         self.js_data:    dict = {}
+        self.historical_urls: list = []
+        self.active_data:     dict = {}
 
     # ── Setup ─────────────────────────────────────────────────────────────
 
@@ -539,7 +546,29 @@ class BountyHub:
         # Capture discovered JS URLs so the JS-Oracle stage (and its token
         # pre-filter/purifier) can run in the CLI too, like the web pipeline.
         self.js_files   = result.get("js_files", [])
+        # Historical URLs seed the Active Recon crawler (like the web pipeline).
+        self.historical_urls = result.get("historical_urls", [])
         return self.live_hosts
+
+    def _active_recon(self) -> dict:
+        """Module 2.5 — katana crawl + ffuf + arjun + naabu + nuclei. Mirrors the
+        web Deep scan; degrades gracefully (missing tools / errors are logged)."""
+        if not self.live_hosts:
+            return {}
+        Logger.section("MODULE 2.5 — Active Recon & Fuzzing  "
+                       "[katana · ffuf · arjun · naabu · nuclei]")
+        try:
+            result = ActiveReconModule(
+                self.target, self.live_hosts, self.output_dir,
+                seed_endpoints=self.historical_urls,
+                seed_js=self.js_files,
+            ).execute()
+            render_events(result["events"])
+            self.active_data = result
+            return result
+        except Exception as exc:
+            Logger.error(f"Active Recon failed: {exc}")
+            return {}
 
     def _fingerprint(self, hosts: Optional[list] = None) -> list:
         source = hosts or self.live_hosts
@@ -611,7 +640,8 @@ class BountyHub:
         DependencyChecker.check_optional()
 
         result = AIAdvisorModule(data, self.output_dir,
-                                 js_data=js_data or self.js_data).execute()
+                                 js_data=js_data or self.js_data,
+                                 active_data=self.active_data).execute()
         render_events(result["events"])
 
         return result["analyses"]
@@ -655,10 +685,32 @@ class BountyHub:
             return
         Logger.success(f"Stage 2 complete — {len(fp_data)} host(s) fingerprinted")
 
-        # Stage 2.5 — JS-Oracle (JavaScript analysis + token pre-filter/purifier)
-        js_data = self._js_oracle(self.js_files)
+        # Stage 2.5 — Active Recon & Fuzzing (default; --fast skips it). This is
+        # what discovers JS on SPAs (katana crawl), so it runs before JS-Oracle.
+        if getattr(self.args, "fast", False):
+            Logger.info("Fast mode — Active Recon & Fuzzing skipped (passive only). "
+                        "Drop --fast for the full deep scan.")
+        else:
+            Logger.warning("Active Recon runs katana/ffuf/arjun/naabu/nuclei against the "
+                           "target — only on assets you are AUTHORISED to test. "
+                           "(Use --fast for a passive-only scan.)")
+            self._active_recon()
+            ac = self.active_data.get("crawl", {})
+            nx = self.active_data.get("nuclei", {})
+            Logger.success(
+                f"Stage 2.5 complete — crawl:{ac.get('count', 0)} "
+                f"fuzz:{self.active_data.get('fuzz', {}).get('count', 0)} "
+                f"params:{self.active_data.get('params', {}).get('count', 0)} "
+                f"nuclei:{nx.get('count', 0)}")
 
-        # Stage 3 — Reporting. FREE mode: deterministic offline report ($0).
+        # Merge JS from passive recon + the active crawl (dedup, order-preserving).
+        crawl_js = (self.active_data.get("crawl", {}) or {}).get("js_files", []) or []
+        js_urls  = list(dict.fromkeys((self.js_files or []) + crawl_js))
+
+        # Stage 3 — JS-Oracle (JavaScript analysis + token pre-filter/purifier)
+        js_data = self._js_oracle(js_urls)
+
+        # Stage 4 — Reporting. FREE mode: deterministic offline report ($0).
         # AI mode: the Opus advisor (spends credit).
         if getattr(self.args, "offline", False):
             from core.offline_report import build_report
@@ -674,11 +726,11 @@ class BountyHub:
             self._print_summary()
             return
 
-        # Stage 3 — AI Advisor (folds in JS-Oracle findings)
+        # Stage 4 — AI Advisor (folds in JS-Oracle + active-recon findings)
         analyses = self._advise(fp_data, js_data=js_data)
-        Logger.success(f"Stage 3 complete — AI analysis for {len(analyses)} host(s)")
+        Logger.success(f"Stage 4 complete — AI analysis for {len(analyses)} host(s)")
 
-        # Stage 4 — Optional report
+        # Stage 5 — Optional interactive report
         try:
             print(
                 f"\n{Colors.YELLOW}[?]{Colors.RESET} Generate a bug bounty report now? "
@@ -759,12 +811,15 @@ def build_parser() -> argparse.ArgumentParser:
         prog="bountyhub",
         description=(
             "BountyHub v2 — AI-Powered Bug Bounty Intelligence Framework\n"
-            "Integrates subfinder, httpx, nmap, whatweb with Google Gemini AI."
+            "Integrates subfinder, httpx, nmap, katana, ffuf, nuclei with Claude AI."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
-  Full pipeline (all 4 modules):
+  Full deep scan, FREE ($0) — recon + active recon + fingerprint + JS + report:
+      python3 BountyHub_v2/cli/main.py full --target example.com --offline
+
+  Full deep scan WITH the Opus AI advisor (spends credit):
       python3 BountyHub_v2/cli/main.py full --target example.com
 
   Recon only (handles specific subdomains automatically):
@@ -813,6 +868,12 @@ disclaimer:
         help="FREE mode ($0): analyze JS with the deterministic regex pass only "
              "(no LLM) and write the report offline (offline_report.md). Skips the "
              "paid AI advisor — run 'advise' later if you want a Claude synthesis.",
+    )
+    p_full.add_argument(
+        "--fast", action="store_true",
+        help="Passive only — skip Active Recon & Fuzzing (katana/ffuf/arjun/naabu/"
+             "nuclei). Default is the FULL deep scan (recommended for SPAs, where "
+             "katana is what discovers the JS).",
     )
 
     # ── recon ─────────────────────────────────────────────────────────────
