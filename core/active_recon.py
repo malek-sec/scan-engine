@@ -117,7 +117,7 @@ _NUCLEI_MAX_TARGETS   = Config.ACTIVE_NUCLEI_MAX_TARGETS
 _DIR_WORDLIST_CANDIDATES = [
     p for p in [
         Config.ACTIVE_DIR_WORDLIST,
-        "/home/kali/SecLists/Discovery/Web-Content/common.txt",
+        os.path.expanduser("~/SecLists/Discovery/Web-Content/common.txt"),
         "/usr/share/seclists/Discovery/Web-Content/common.txt",
         "/usr/share/wordlists/dirb/common.txt",
     ] if p
