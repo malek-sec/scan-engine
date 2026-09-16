@@ -249,5 +249,4 @@ python3 -m pytest tests/
 
 ## License
 
-No license file is currently present, which means default copyright applies and
-the code is not licensed for reuse. If you intend others to use it, add one.
+MIT - see [LICENSE](LICENSE).
