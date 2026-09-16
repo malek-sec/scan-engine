@@ -2,7 +2,7 @@
 # setup-ai.sh — point ALL THREE BountyHub tools at one AI profile + API key.
 #
 # Usage (SOURCE it so the vars also enter your current shell):
-#     source /home/kali/scan-engine/tools/setup-ai.sh [profile] [sk-ant-KEY]
+#     source /path/to/scan-engine/tools/setup-ai.sh [profile] [sk-ant-KEY]
 #
 #   profile = cheap | balanced | strong   (default: cheap)
 #     cheap     Haiku for everything, effort=low       — lowest cost
@@ -18,7 +18,20 @@
 # Requires the model-aware builds (js-oracle analyzer, scan-engine ai_advisor +
 # js_prefilter all honour ANTHROPIC_MODEL).
 
-ROOT="${SETUP_AI_ROOT:-/home/kali}"     # dir holding js-oracle / scan-engine / bountyhub
+# Workspace root: the dir holding js-oracle / scan-engine / bountyhub. Derived
+# from this script's own location (tools/ -> scan-engine/ -> workspace) so it
+# works on any checkout; override with SETUP_AI_ROOT if your layout differs.
+if [ -n "${SETUP_AI_ROOT:-}" ]; then
+  ROOT="$SETUP_AI_ROOT"
+else
+  _SRC="${BASH_SOURCE[0]:-$0}"
+  ROOT="$(cd "$(dirname "$_SRC")/../.." 2>/dev/null && pwd)"
+  unset _SRC
+fi
+if [ -z "$ROOT" ]; then
+  echo "error: cannot resolve workspace root - set SETUP_AI_ROOT to the dir holding js-oracle/, scan-engine/ and bountyhub/" >&2
+  return 1 2>/dev/null || exit 1
+fi
 
 # ── parse args (profile and/or key, any order) ──────────────────────────────
 PROFILE=""; KEY=""
