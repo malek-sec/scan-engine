@@ -21,8 +21,10 @@ Usage
 
 Environment Variables
 ---------------------
-  GEMINI_API_KEY   Required for 'advise' and 'report'.
-                   export GEMINI_API_KEY='AIza...'
+  ANTHROPIC_API_KEY  Required for 'advise' and 'jsoracle' (Claude).
+                     export ANTHROPIC_API_KEY='sk-ant-...'
+  GEMINI_API_KEY     Required only for the interactive 'report' (Gemini).
+                     export GEMINI_API_KEY='AIza...'
 """
 
 import argparse
@@ -98,7 +100,7 @@ def render_events(events: list) -> None:
 
 def render_ai_analysis(host_url: str, analysis: str) -> None:
     """
-    Render Gemini AI analysis text with rich terminal formatting.
+    Render AI advisor analysis text with rich terminal formatting.
 
     Visual language
     ---------------

@@ -90,9 +90,9 @@ from core.js_prefilter import build_plan, build_offline_plan, Decision
 # The JS-Oracle install is resolved, not hardcoded. Priority:
 #   1. $JS_ORACLE_ROOT (or $BOUNTYHUB_JS_ORACLE_ROOT) — explicit operator override.
 #   2. The sibling js-oracle/ next to this scan-engine checkout.
-# The sibling default works both on the canonical Kali box (/home/kali/scan-engine
-# + /home/kali/js-oracle) and on any mirror (…/Bug-Bounty/scan-engine + …/js-oracle),
-# so Module 4 is no longer pinned to one machine's absolute path.
+# The sibling default works wherever the two checkouts sit next to each other
+# (<workspace>/scan-engine + <workspace>/js-oracle), so Module 4 is never pinned
+# to one machine's absolute path.
 
 def _resolve_oracle_root() -> Path:
     override = (os.environ.get("JS_ORACLE_ROOT")
@@ -494,8 +494,9 @@ class JSOracle:
             return False
         if not _JS_ORACLE_PYTHON.exists():
             events.append(_ev("warning",
-                f"JS-Oracle venv not found at {_JS_ORACLE_PYTHON} — "
-                "Module 4 skipped. Install: cd /home/kali/js-oracle && python -m venv .venv && .venv/bin/pip install -r requirements.txt"
+                f"JS-Oracle venv not found at {_JS_ORACLE_PYTHON} — Module 4 "
+                f"skipped. Install: cd {_JS_ORACLE_ROOT} && python3 -m venv .venv "
+                f"&& .venv/bin/pip install -r requirements.txt"
             ))
             return False
         if not _JS_ORACLE_MAIN.exists():

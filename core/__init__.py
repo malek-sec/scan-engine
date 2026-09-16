@@ -78,7 +78,7 @@ class Logger:
  ╚═════╝  ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═════╝
 {Colors.RESET}
 {Colors.GRAY}  ──────────────────────────────────────────────────────────────────────{Colors.RESET}
-{Colors.YELLOW}  [ AI-Powered Bug Bounty Intelligence Framework ] {Colors.RESET}{Colors.DIM}v2.0.0  |  Gemini Edition{Colors.RESET}
+{Colors.YELLOW}  [ AI-Powered Bug Bounty Intelligence Framework ] {Colors.RESET}{Colors.DIM}v2.0.0  |  Claude Edition{Colors.RESET}
 {Colors.GRAY}  ──────────────────────────────────────────────────────────────────────{Colors.RESET}
 {Colors.RED}{Colors.BOLD}  [!] Authorised security testing only. Misuse violates law & program ToS.{Colors.RESET}
 {Colors.GRAY}  ──────────────────────────────────────────────────────────────────────{Colors.RESET}
@@ -117,10 +117,16 @@ class Logger:
         print(f"    {Colors.GRAY}$ {command}{Colors.RESET}")
 
     @staticmethod
-    def ai_block(content: str) -> None:
-        """Render AI-generated text inside a visually distinct bordered block."""
+    def ai_block(content: str, title: str = "AI Analysis") -> None:
+        """Render AI-generated text inside a visually distinct bordered block.
+
+        The provider is passed in rather than hardcoded: the advisor runs on
+        Claude while the interactive report module runs on Gemini, so a fixed
+        label here would be wrong for one of them.
+        """
         border = "─" * 60
-        print(f"\n{Colors.MAGENTA}{Colors.BOLD}┌─ Gemini AI Analysis ──{'─' * 40}{Colors.RESET}")
+        header = f"┌─ {title} "
+        print(f"\n{Colors.MAGENTA}{Colors.BOLD}{header}{'─' * max(0, 62 - len(header))}{Colors.RESET}")
         for line in content.strip().split("\n"):
             # Highlight Markdown headers inline for readability
             if line.startswith("## "):
