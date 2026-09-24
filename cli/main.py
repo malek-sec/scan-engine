@@ -43,11 +43,12 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from core import Colors, Config, DependencyChecker, Logger
-from core.recon import ReconModule
+from core.recon import ReconModule, is_valid_target
 from core.fingerprint import FingerprintModule
 from core.active_recon import ActiveReconModule
 from core.ai_advisor import AIAdvisorModule
 from core.js_oracle import JSOracle
+from core.scope import ScopeGuard
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -491,8 +492,24 @@ class BountyHub:
         self.js_data:    dict = {}
         self.historical_urls: list = []
         self.active_data:     dict = {}
+        self.scope: Optional[ScopeGuard] = None
 
     # ── Setup ─────────────────────────────────────────────────────────────
+
+    def _build_scope(self) -> Optional[ScopeGuard]:
+        """Construct the scope guard from --scope/--out-of-scope, else the target.
+
+        Explicit scope files win; otherwise the guard defaults to the target apex
+        and its subdomains — the conservative behaviour, now enforced rather than
+        assumed. Returns None only when there is nothing to derive scope from.
+        """
+        scope_file = getattr(self.args, "scope", None)
+        oos_file   = getattr(self.args, "out_of_scope", None)
+        if scope_file or oos_file:
+            return ScopeGuard.from_files(scope_file, oos_file)
+        if self.target:
+            return ScopeGuard.from_target(self.target)
+        return None
 
     def _setup(self) -> None:
         if self.target:
@@ -502,17 +519,50 @@ class BountyHub:
             self.output_dir = Path(Config.OUTPUT_BASE) / f"report_{ts}"
             self.output_dir.mkdir(parents=True, exist_ok=True)
 
+        self.scope = self._build_scope()
+
         Logger.success(f"Engagement directory: {Colors.CYAN}{self.output_dir}{Colors.RESET}")
         Logger.data("Target",     self.target or "N/A")
         Logger.data("Timestamp",  datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         Logger.data("AI model",   Config.GEMINI_MODEL)
         Logger.data("Output dir", str(self.output_dir))
+        if self.scope and not self.scope.is_empty:
+            Logger.data("Scope", self.scope.describe())
+
+    def _apply_scope(self) -> None:
+        """Drop out-of-scope hosts/URLs before any Stage 2+ traffic is sent.
+
+        This is the single enforcement point: live_hosts feeds fingerprinting and
+        the whole active phase (katana/ffuf/naabu/nuclei), so filtering it here
+        guarantees no active traffic ever reaches a host outside the scope.
+        """
+        if not self.scope or self.scope.is_empty:
+            return
+
+        def _drop(items: list, label: str) -> list:
+            kept, dropped = self.scope.filter(items)
+            if dropped:
+                sample = ", ".join(dropped[:5]) + (" …" if len(dropped) > 5 else "")
+                Logger.warning(
+                    f"Scope guard — dropped {len(dropped)} out-of-scope {label}: {sample}"
+                )
+            return kept
+
+        self.live_hosts      = _drop(self.live_hosts, "host(s)")
+        self.js_files        = _drop(self.js_files, "JS URL(s)")
+        self.historical_urls = _drop(self.historical_urls, "historical URL(s)")
 
     # ── Module wrappers (call core, render events, return data) ───────────
 
     def _recon(self) -> list:
         if not self.target:
             Logger.error("--target DOMAIN is required for reconnaissance")
+            return []
+        if not is_valid_target(self.target):
+            Logger.error(
+                f"Invalid target '{self.target}' — must be a bare domain or IP "
+                "(e.g. example.com), not a flag or a value with spaces/shell characters."
+            )
             return []
         if not DependencyChecker.verify(Config.RECON_TOOLS, "Recon (Module 1)"):
             Logger.error("Missing recon tools — install them and retry")
@@ -550,6 +600,8 @@ class BountyHub:
         self.js_files   = result.get("js_files", [])
         # Historical URLs seed the Active Recon crawler (like the web pipeline).
         self.historical_urls = result.get("historical_urls", [])
+        # Enforce scope before anything downstream sends traffic at these hosts.
+        self._apply_scope()
         return self.live_hosts
 
     def _active_recon(self) -> dict:
@@ -769,6 +821,15 @@ class BountyHub:
             if hosts_file and Path(hosts_file).exists():
                 preloaded = [h.strip() for h in Path(hosts_file).read_text().splitlines() if h.strip()]
                 Logger.info(f"Loaded {len(preloaded)} hosts from {hosts_file}")
+                # A hosts file can carry anything — enforce scope before probing.
+                if self.scope and not self.scope.is_empty:
+                    kept, dropped = self.scope.filter(preloaded)
+                    if dropped:
+                        Logger.warning(
+                            f"Scope guard — dropped {len(dropped)} out-of-scope host(s) "
+                            f"from {hosts_file}"
+                        )
+                    preloaded = kept
             self._fingerprint(preloaded)
             self._print_summary()
 
@@ -878,12 +939,34 @@ disclaimer:
              "katana is what discovers the JS).",
     )
 
+    def _add_scope_args(p) -> None:
+        """Attach the scope-guard options to a subcommand.
+
+        Without these the guard defaults to the target apex + its subdomains, so
+        discovered assets outside that boundary are never scanned. A scope file
+        lets an operator match a program's exact scope (and exclusions).
+        """
+        p.add_argument(
+            "--scope", metavar="FILE",
+            help="File of in-scope host patterns (one per line: example.com, "
+                 "*.example.com, app.example.com, or !excluded.example.com). "
+                 "Defaults to the target and its subdomains.",
+        )
+        p.add_argument(
+            "--out-of-scope", metavar="FILE",
+            help="File of out-of-scope host patterns; these are always excluded, "
+                 "even if they match an in-scope rule.",
+        )
+
+    _add_scope_args(p_full)
+
     # ── recon ─────────────────────────────────────────────────────────────
     p_recon = sub.add_parser(
         "recon",
         help="Module 1 — Passive subdomain enumeration + live host validation",
     )
     p_recon.add_argument("--target", "-t", required=True, metavar="DOMAIN")
+    _add_scope_args(p_recon)
 
     # ── fingerprint ───────────────────────────────────────────────────────
     p_fp = sub.add_parser(
@@ -895,6 +978,7 @@ disclaimer:
         "--hosts-file", metavar="FILE",
         help="Path to live_hosts.txt (one URL per line). Skips Module 1.",
     )
+    _add_scope_args(p_fp)
 
     # ── advise ────────────────────────────────────────────────────────────
     p_adv = sub.add_parser(
