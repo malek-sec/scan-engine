@@ -58,7 +58,6 @@ bounded. Only ever run this against targets you are authorised to test.
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import time
