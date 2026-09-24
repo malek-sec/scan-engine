@@ -13,7 +13,6 @@ These tests fail if any tool is ever accepted on filename alone again.
 """
 
 import os
-import re
 import subprocess
 import sys
 import unittest
