@@ -189,6 +189,35 @@ def normalize_target(raw: str, *, with_scheme: bool = True) -> str:
     return f"https://{t}"
 
 
+# A conservative hostname / IPv4 validator. The point is not RFC perfection but
+# an argument-injection guard: the target flows into external tools as an argv
+# element (subfinder -d, gau, waybackurls, crt.sh URL), so a value that begins
+# with "-" or contains shell/format metacharacters must never reach them. This
+# matters most on the BountyHub web path, where the target comes from a form.
+_LABEL_RE    = r"(?!-)[A-Za-z0-9-]{1,63}(?<!-)"
+_HOSTNAME_RE = re.compile(rf"^(?=.{{1,253}}$){_LABEL_RE}(?:\.{_LABEL_RE})*$")
+_IPV4_RE     = re.compile(
+    r"^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$"
+)
+
+
+def is_valid_target(raw: str) -> bool:
+    """True if ``raw`` reduces to a syntactically valid hostname or IPv4/IPv6.
+
+    Rejects the empty string, a leading dash (argument injection), and anything
+    carrying whitespace or shell/format metacharacters — none of which can
+    appear in a real hostname and all of which are dangerous in an argv element.
+    """
+    host = normalize_target(raw, with_scheme=False)
+    if not host or host.startswith("-"):
+        return False
+    if host.startswith("[") and host.endswith("]"):
+        return len(host) > 2  # IPv6 literal — minimal sanity check
+    if _IPV4_RE.match(host):
+        return True
+    return bool(_HOSTNAME_RE.match(host))
+
+
 # ProjectDiscovery tools print "Current Version: vX.Y.Z" on -version. The
 # Debian python3-httpx CLI cannot produce this (it exits 2 on an unknown flag).
 _PD_VERSION_RE = re.compile(r"Current Version:\s*v?\d+\.\d+(?:\.\d+)*", re.IGNORECASE)
@@ -339,6 +368,14 @@ class ReconModule:
     def __init__(self, target: str, output_dir: Path) -> None:
         # Input boundary: subfinder -d and httpx -l both want a BARE hostname.
         self.target     = normalize_target(target, with_scheme=False)
+        # Reject a malformed target before it ever reaches an external tool's
+        # argv (argument-injection guard — critical on the web-driven path).
+        if not is_valid_target(self.target):
+            raise ValueError(
+                f"Invalid target {target!r}: not a valid hostname or IP. "
+                "Targets must be a bare domain/host (e.g. example.com), never a "
+                "flag or a value containing spaces or shell characters."
+            )
         self.output_dir = output_dir
         self.file_subs  = output_dir / Config.FILE_SUBDOMAINS
         self.file_live  = output_dir / Config.FILE_LIVE_HOSTS

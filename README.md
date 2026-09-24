@@ -39,6 +39,15 @@ report produces a complete write-up from the scan artifacts with no model call
 and no API key. AI synthesis is an upgrade you opt into, and a finished free scan
 can be upgraded later from its saved output, without re-scanning the target.
 
+**Nothing is scanned outside scope.** Recon discovers subdomains; a scope guard
+decides which of them the engine may touch. It is enforced at one chokepoint —
+right after live hosts are found, before any Stage 2+ traffic — so fingerprinting
+and the entire active phase (katana/ffuf/naabu/nuclei) only ever reach in-scope
+hosts. Without a scope file the guard defaults to the target apex and its
+subdomains; `--scope`/`--out-of-scope` files let you match a program's exact
+scope. Targets are validated too, so a malformed value can never be injected as a
+flag into an external tool's arguments.
+
 ## Pipeline
 
 | Module | Command | What it does | External tools |
@@ -125,6 +134,9 @@ want a quiet first look, not as the normal mode.
 | `full` | `--target`, `-t` | Target domain (required) |
 | `full` | `--offline` | Free mode: deterministic JS pass and offline report, no model call |
 | `full` | `--fast` | Passive only, skip the active recon phase |
+| `full`, `recon`, `fingerprint` | `--scope FILE` | In-scope host patterns (`example.com`, `*.example.com`, `app.example.com`, `!excluded`). Defaults to the target + subdomains |
+| `full`, `recon`, `fingerprint` | `--out-of-scope FILE` | Host patterns always excluded, even if in-scope |
+| `full`, `recon`, `fingerprint` | `--respect-robots` | Drop robots.txt-disallowed JS/endpoint URLs (off by default) |
 | `recon` | `--target`, `-t` | Target domain (required) |
 | `fingerprint` | `--hosts-file` | Read `live_hosts.txt` instead of re-running Module 1 |
 | `advise` | `--fingerprint-file`, `-f` | Read `fingerprint.json` instead of re-running Modules 1 and 2 |
@@ -142,6 +154,7 @@ fingerprint.json     Ports, technologies, TLS details
 js_files.json        Discovered JavaScript, with pre-filter tiers
 ai_advice.txt        AI analysis, when the advisor ran
 offline_report.md    Deterministic report, always available
+summary.json         Machine-readable rollup of the whole run (counts, scope, JS)
 ```
 
 Reports are evidence-first. Confirmed findings and unverified leads are kept
