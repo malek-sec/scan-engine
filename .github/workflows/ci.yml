@@ -1,0 +1,35 @@
+name: CI
+
+# Run the test suite and a real-bugs lint gate on every push and PR to main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install test tooling
+        # The engine's third-party deps (anthropic, google-genai, python-dotenv)
+        # are all soft-imported, so the unit tests run on the standard library
+        # alone. Only the test/lint tooling is needed here.
+        run: python -m pip install --upgrade pip pytest ruff
+
+      - name: Lint (real bugs only — pyflakes rules)
+        run: ruff check --select F .
+
+      - name: Run tests
+        run: pytest -q

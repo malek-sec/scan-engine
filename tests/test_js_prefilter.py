@@ -17,7 +17,7 @@ from unittest import mock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from core import js_prefilter as pf
-from core.js_prefilter import (Decision, build_plan, build_offline,
+from core.js_prefilter import (build_plan, build_offline,
                                score_content, slice_content)
 from core.js_oracle import JSOracle
 

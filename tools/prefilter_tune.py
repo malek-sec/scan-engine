@@ -84,7 +84,7 @@ def main() -> None:
         short = name if len(name) <= 36 else "..." + name[-33:]
         print(f"{short:38} {size:>8} {score:>6} {sent:>8} {n_sec:>4} {n_ep:>4}  {sig}")
 
-    print(f"\nThreshold sweep — skip/cheap/deep split and est. tokens sent to the LLM:")
+    print("\nThreshold sweep — skip/cheap/deep split and est. tokens sent to the LLM:")
     print(f"{'DEEP>=':>7} {'skip':>5} {'cheap':>6} {'deep':>5} {'KB->LLM':>9} {'~ktokens':>9}")
     print("-" * 48)
     for th in (int(x) for x in args.sweep.split(",")):

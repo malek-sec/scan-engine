@@ -559,10 +559,10 @@ def build_plan(urls: list[str], target: str, events: list | None = None,
             chars_saved += len(content) - len(llm_content)
 
         if scored.score >= _DEEP_THRESHOLD:
-            route, model, n = "deep", (_DEEP_MODEL or None), "deep"
+            route, model = "deep", (_DEEP_MODEL or None)
             n_deep += 1
         else:
-            route, model, n = "cheap", (_CHEAP_MODEL or None), "cheap"
+            route, model = "cheap", (_CHEAP_MODEL or None)
             n_cheap += 1
 
         plan[url] = Decision(url=url, route=route, score=scored.score, model=model,
