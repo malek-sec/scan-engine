@@ -49,6 +49,8 @@ from core.active_recon import ActiveReconModule
 from core.ai_advisor import AIAdvisorModule
 from core.js_oracle import JSOracle
 from core.scope import ScopeGuard
+from core.robots import RobotsPolicy
+from core.run_summary import build_run_summary
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -552,6 +554,24 @@ class BountyHub:
         self.js_files        = _drop(self.js_files, "JS URL(s)")
         self.historical_urls = _drop(self.historical_urls, "historical URL(s)")
 
+    def _apply_robots(self) -> None:
+        """Optionally drop robots.txt-disallowed URLs from the engine's URL sets."""
+        if not getattr(self.args, "respect_robots", False):
+            return
+        origins = (self.live_hosts or []) + (self.js_files or []) + (self.historical_urls or [])
+        if not origins:
+            return
+        policy = RobotsPolicy.fetch(origins)
+
+        def _drop(items: list, label: str) -> list:
+            kept, dropped = policy.filter(items)
+            if dropped:
+                Logger.info(f"robots.txt — skipped {len(dropped)} disallowed {label}")
+            return kept
+
+        self.js_files        = _drop(self.js_files, "JS URL(s)")
+        self.historical_urls = _drop(self.historical_urls, "historical URL(s)")
+
     # ── Module wrappers (call core, render events, return data) ───────────
 
     def _recon(self) -> list:
@@ -602,6 +622,8 @@ class BountyHub:
         self.historical_urls = result.get("historical_urls", [])
         # Enforce scope before anything downstream sends traffic at these hosts.
         self._apply_scope()
+        # Optionally honour robots.txt on the URL sets we control.
+        self._apply_robots()
         return self.live_hosts
 
     def _active_recon(self) -> dict:
@@ -717,6 +739,28 @@ class BountyHub:
                 size = f"{sz / 1024:.1f} KB" if sz >= 1024 else f"{sz} B"
                 print(f"    {Colors.SUCCESS}→{Colors.RESET} {f.name:<40} {Colors.GRAY}{size}{Colors.RESET}")
 
+    def _write_run_summary(self) -> None:
+        """Emit summary.json — one machine-readable rollup of the whole run."""
+        if not self.output_dir:
+            return
+        try:
+            summary = build_run_summary(
+                target=self.target,
+                scope_desc=(self.scope.describe()
+                            if self.scope and not self.scope.is_empty else None),
+                live_hosts=self.live_hosts,
+                fp_data=self.fp_data,
+                js_files=self.js_files,
+                historical_urls=self.historical_urls,
+                active_data=self.active_data,
+                js_data=self.js_data,
+            )
+            path = self.output_dir / "summary.json"
+            path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+            Logger.success(f"Run summary → {path}")
+        except Exception as exc:
+            Logger.warning(f"Could not write summary.json: {exc}")
+
     # ── Full pipeline ─────────────────────────────────────────────────────
 
     def _full_pipeline(self) -> None:
@@ -777,6 +821,7 @@ class BountyHub:
             Logger.success(f"FREE mode — report generated offline ($0): {out_file}")
             Logger.info("Want a Claude synthesis of these SAME findings later? Run: "
                         f"advise --target {self.target}  (one Opus call, reuses saved findings)")
+            self._write_run_summary()
             self._print_summary()
             return
 
@@ -798,6 +843,7 @@ class BountyHub:
         except (KeyboardInterrupt, EOFError):
             Logger.info("Report generation skipped")
 
+        self._write_run_summary()
         self._print_summary()
 
     # ── Dispatch ──────────────────────────────────────────────────────────
@@ -956,6 +1002,11 @@ disclaimer:
             "--out-of-scope", metavar="FILE",
             help="File of out-of-scope host patterns; these are always excluded, "
                  "even if they match an in-scope rule.",
+        )
+        p.add_argument(
+            "--respect-robots", action="store_true",
+            help="Honour robots.txt — drop disallowed JS/endpoint URLs from the "
+                 "sets the engine controls (not katana's own crawl). Off by default.",
         )
 
     _add_scope_args(p_full)
