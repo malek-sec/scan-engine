@@ -29,6 +29,7 @@ Environment Variables
 
 import argparse
 import json
+import os
 import re
 import sys
 import traceback
@@ -41,6 +42,29 @@ _HERE = Path(__file__).resolve()
 _ROOT = _HERE.parent.parent          # BountyHub_v2/
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+
+# ── --polite preset ─────────────────────────────────────────────────────────
+# Detected here, BEFORE `core` is imported, because the rate ceilings are read
+# from the environment at import time (and active_recon freezes them into
+# constants). setdefault means an explicit BOUNTYHUB_* env the operator already
+# exported always wins — --polite only fills in gentler values where none was set.
+# Every value is <= its normal default, so this can only ever LOWER the footprint.
+_POLITE_ENV = {
+    "BOUNTYHUB_HTTPX_THREADS": "3",
+    "BOUNTYHUB_HTTPX_RL": "10",
+    "BOUNTYHUB_NMAP_MAX_RATE": "5",
+    "BOUNTYHUB_ACTIVE_KATANA_RL": "20",
+    "BOUNTYHUB_ACTIVE_KATANA_CONC": "5",
+    "BOUNTYHUB_ACTIVE_FFUF_RATE": "15",
+    "BOUNTYHUB_ACTIVE_FFUF_THREADS": "10",
+    "BOUNTYHUB_ACTIVE_ARJUN_THREADS": "5",
+    "BOUNTYHUB_ACTIVE_NAABU_RATE": "100",
+    "BOUNTYHUB_ACTIVE_NUCLEI_RL": "25",
+    "BOUNTYHUB_ACTIVE_NUCLEI_CONC": "10",
+}
+if "--polite" in sys.argv:
+    for _k, _v in _POLITE_ENV.items():
+        os.environ.setdefault(_k, _v)
 
 from core import Colors, Config, DependencyChecker, Logger
 from core.recon import ReconModule, is_valid_target
@@ -526,10 +550,19 @@ class BountyHub:
         Logger.success(f"Engagement directory: {Colors.CYAN}{self.output_dir}{Colors.RESET}")
         Logger.data("Target",     self.target or "N/A")
         Logger.data("Timestamp",  datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        Logger.data("AI model",   Config.GEMINI_MODEL)
+        # Report the AI actually in play: offline runs make no call; otherwise the
+        # analysis is the Claude advisor (Config.GEMINI_MODEL only drives the
+        # optional interactive report generator, not the vulnerability analysis).
+        if getattr(self.args, "offline", False):
+            Logger.data("AI mode", "offline — deterministic, no AI call ($0)")
+        else:
+            from core.ai_advisor import _CLAUDE_MODEL
+            Logger.data("AI advisor", _CLAUDE_MODEL)
         Logger.data("Output dir", str(self.output_dir))
         if self.scope and not self.scope.is_empty:
             Logger.data("Scope", self.scope.describe())
+        if "--polite" in sys.argv:
+            Logger.data("Mode", "polite — reduced request rates (httpx/nmap/katana/ffuf/naabu/nuclei)")
 
     def _apply_scope(self) -> None:
         """Drop out-of-scope hosts/URLs before any Stage 2+ traffic is sent.
@@ -1007,6 +1040,12 @@ disclaimer:
             "--respect-robots", action="store_true",
             help="Honour robots.txt — drop disallowed JS/endpoint URLs from the "
                  "sets the engine controls (not katana's own crawl). Off by default.",
+        )
+        p.add_argument(
+            "--polite", action="store_true",
+            help="Reduce request rates across every tool (httpx/nmap/katana/ffuf/"
+                 "naabu/nuclei) for strict programs. An explicit BOUNTYHUB_* env "
+                 "override still wins; --polite only lowers, never raises.",
         )
 
     _add_scope_args(p_full)
