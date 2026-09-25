@@ -15,7 +15,7 @@ Public API
 ----------
 JSOracle(output_dir).execute(target, js_urls) → dict:
 {
-    "status"            : "ok" | "partial" | "skipped" | "error",
+    "status"            : "ok" | "partial" | "skipped" | "no_findings" | "error",
     "events"            : [{"level": str, "msg": str}, ...],
     "endpoints"         : [...],
     "api_keys"          : [...],
@@ -1048,7 +1048,9 @@ class JSOracle:
         # Merged findings = what the LLM returned + the free offline pass.
         file_results = llm_results + offline_results
         if not file_results:
-            _empty["status"] = "error"
+            # A clean scan that simply surfaced nothing is NOT an error — the
+            # pipeline ran fine, the files just had no extractable findings.
+            _empty["status"] = "no_findings"
             events.append(_ev("warning",
                 f"JS-Oracle: no findings produced — {len(analyzable)} file(s) were "
                 f"sent to the LLM and {len(selected) - len(analyzable)} were skipped "
