@@ -108,6 +108,9 @@ hardcoded to a particular machine.
 ## Usage
 
 ```bash
+# Recommended first look — passive, rate-limited, free, and open the report
+python3 cli/main.py full --target example.com --fast --polite --offline --open
+
 # Full deep scan, free — every stage, deterministic report, no API cost
 python3 cli/main.py full --target example.com --offline
 
