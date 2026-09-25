@@ -248,7 +248,13 @@ class Config:
     FILE_LIVE_HOSTS  = "live_hosts.txt"
     FILE_FINGERPRINT = "fingerprint.json"
     FILE_AI_ADVICE   = "ai_advice.txt"
-    OUTPUT_BASE      = "bountyhub_output"
+    # Anchored to the project root so results always land in
+    # <scan-engine>/bountyhub_output/ no matter which directory the CLI is run
+    # from. Override with BOUNTYHUB_OUTPUT_BASE (absolute or relative to cwd).
+    OUTPUT_BASE      = _env_str(
+        "BOUNTYHUB_OUTPUT_BASE",
+        str(Path(__file__).resolve().parent.parent / "bountyhub_output"),
+    )
 
     @classmethod
     def engagement_dir(cls, target: str) -> Path:
