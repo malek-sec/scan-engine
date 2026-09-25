@@ -60,6 +60,16 @@ class TestJsDiscovery(unittest.TestCase):
         self.assertIn("https://x.com/assets/app.js", js)
         self.assertIn("https://cdn.x.com/lib.js", js)
 
+    def test_protocol_relative_js_resolves_to_its_own_host(self):
+        # //host/app.js must become scheme://host/app.js, NOT be glued onto the
+        # page host as a path (the double-slash bug).
+        line = json.dumps({"url": "http://x.com/",
+                           "body": '<script src="//cdn.other.com/analytics.js"></script>'})
+        js = self._discover(line)
+        self.assertIn("http://cdn.other.com/analytics.js", js)
+        self.assertFalse(any("x.com//cdn" in u for u in js),
+                         "protocol-relative URL was glued onto the base host")
+
     def test_historical_js_included(self):
         js = self._discover("{}", historical=["https://x.com/old.js?v=2", "https://x.com/page.php"])
         self.assertIn("https://x.com/old.js", js)

@@ -953,9 +953,12 @@ class ReconModule:
                 for match in _rel_re.findall(body[:50_000]):
                     if match.startswith("http"):
                         js_urls.add(match.split("?")[0])
-                    elif match.startswith("/") and base:
-                        p = urllib.parse.urlparse(base)
-                        js_urls.add(f"{p.scheme}://{p.netloc}" + match.split("?")[0])
+                    elif base:
+                        # urljoin handles every relative form correctly, including
+                        # protocol-relative "//host/app.js" (which must resolve to
+                        # "scheme://host/app.js", NOT be glued onto the base host as
+                        # a path — the double-slash bug).
+                        js_urls.add(urllib.parse.urljoin(base, match).split("?")[0])
 
             # Source 3: bulletproof catch-all — every absolute .js URL in the raw
             # output, regardless of the JSON shape the httpx build produced.
