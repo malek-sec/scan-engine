@@ -78,9 +78,10 @@ class Logger:
  ╚═════╝  ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═════╝
 {Colors.RESET}
 {Colors.GRAY}  ──────────────────────────────────────────────────────────────────────{Colors.RESET}
-{Colors.YELLOW}  [ AI-Powered Bug Bounty Intelligence Framework ] {Colors.RESET}{Colors.DIM}v2.0.0  |  Claude Edition{Colors.RESET}
+{Colors.YELLOW}  Recon & vulnerability-analysis pipeline{Colors.RESET}{Colors.DIM}   ·   scan-engine v2.0.0{Colors.RESET}
+{Colors.GRAY}  Rate-bounded by design  ·  offline-first ($0)  ·  Claude-powered advisor{Colors.RESET}
 {Colors.GRAY}  ──────────────────────────────────────────────────────────────────────{Colors.RESET}
-{Colors.RED}{Colors.BOLD}  [!] Authorised security testing only. Misuse violates law & program ToS.{Colors.RESET}
+{Colors.RED}{Colors.BOLD}  [!] Authorised targets only — you own scope and program-policy compliance.{Colors.RESET}
 {Colors.GRAY}  ──────────────────────────────────────────────────────────────────────{Colors.RESET}
 """
         print(b)
@@ -170,9 +171,9 @@ class Config:
     # web integration.  They are deliberately conservative so BountyHub
     # never floods a target or trips rate-limiting defences.
     #
-    # httpx
-    HTTPX_THREADS:      int = 5      # concurrent probing threads  (-threads)
-    HTTPX_RL:           int = 30     # requests/second hard cap      (-rl)
+    # httpx (env-overridable so the --polite preset and strict programs can lower them)
+    HTTPX_THREADS:      int = _env_int("BOUNTYHUB_HTTPX_THREADS", 5)   # concurrent probing threads (-threads)
+    HTTPX_RL:           int = _env_int("BOUNTYHUB_HTTPX_RL", 30)       # requests/second hard cap (-rl)
     HTTPX_TIMEOUT:      int = 10     # per-probe timeout in seconds  (-timeout)
     # NOTE: HTTPX_CONCURRENCY was removed. It only ever fed httpx's -c flag,
     # which upstream deleted in httpx v1.9 (passing it aborts the run). The
@@ -181,7 +182,7 @@ class Config:
     # nmap
     NMAP_TOP_PORTS:     int = 50     # only scan the 50 most common ports
     NMAP_TIMING:        str = "2"    # T2 = polite (slow, low noise)
-    NMAP_MAX_RATE:      int = 10     # max packets/second
+    NMAP_MAX_RATE:      int = _env_int("BOUNTYHUB_NMAP_MAX_RATE", 10)  # max packets/second
     #
     # whatweb
     WHATWEB_AGGRESSION: int = 1      # 1 = stealthy passive-only requests
