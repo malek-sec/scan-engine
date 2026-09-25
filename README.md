@@ -32,7 +32,10 @@ ceiling over the top 50 ports. `httpx` probes at 30 requests/second across 5
 threads. `whatweb` runs at aggression level 1. The active phase is louder by
 design but still bounded, with a total time budget and a host cap. Every one of
 these values is overridable from the environment, so a stricter program scope can
-be enforced without editing Python.
+be enforced without editing Python — and `--polite` lowers all of them at once
+for programs that are sensitive to automated traffic. Scope and rate are separate
+concerns: the scope guard keeps you on authorised hosts, but staying within a
+program's rules on automated scanning and request volume is still your call.
 
 **Zero cost is the default path, not a fallback.** The deterministic offline
 report produces a complete write-up from the scan artifacts with no model call
@@ -137,6 +140,7 @@ want a quiet first look, not as the normal mode.
 | `full`, `recon`, `fingerprint` | `--scope FILE` | In-scope host patterns (`example.com`, `*.example.com`, `app.example.com`, `!excluded`). Defaults to the target + subdomains |
 | `full`, `recon`, `fingerprint` | `--out-of-scope FILE` | Host patterns always excluded, even if in-scope |
 | `full`, `recon`, `fingerprint` | `--respect-robots` | Drop robots.txt-disallowed JS/endpoint URLs (off by default) |
+| `full`, `recon`, `fingerprint` | `--polite` | Lower request rates across every tool for strict programs. Only lowers; an explicit `BOUNTYHUB_*` env var still wins |
 | `recon` | `--target`, `-t` | Target domain (required) |
 | `fingerprint` | `--hosts-file` | Read `live_hosts.txt` instead of re-running Module 1 |
 | `advise` | `--fingerprint-file`, `-f` | Read `fingerprint.json` instead of re-running Modules 1 and 2 |
