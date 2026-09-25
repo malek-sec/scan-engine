@@ -143,6 +143,7 @@ want a quiet first look, not as the normal mode.
 | `full` | `--target`, `-t` | Target domain (required) |
 | `full` | `--offline` | Free mode: deterministic JS pass and offline report, no model call |
 | `full` | `--fast` | Passive only, skip the active recon phase |
+| `full` | `--open` | After the scan, open the report (glow/bat/pager, or print it) |
 | `full`, `recon`, `fingerprint` | `--scope FILE` | In-scope host patterns (`example.com`, `*.example.com`, `app.example.com`, `!excluded`). Defaults to the target + subdomains |
 | `full`, `recon`, `fingerprint` | `--out-of-scope FILE` | Host patterns always excluded, even if in-scope |
 | `full`, `recon`, `fingerprint` | `--respect-robots` | Drop robots.txt-disallowed JS/endpoint URLs (off by default) |
@@ -155,7 +156,10 @@ want a quiet first look, not as the normal mode.
 
 ## Output
 
-Each run writes to `bountyhub_output/<target>_<timestamp>/`:
+Each run writes to `bountyhub_output/<target>_<timestamp>/` inside the project
+directory (so results never scatter across whatever folder you launched from;
+override the location with `BOUNTYHUB_OUTPUT_BASE`). Add `--open` to have the
+report shown automatically when the scan finishes.
 
 ```
 subdomains.txt       Enumerated subdomains

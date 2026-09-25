@@ -794,6 +794,36 @@ class BountyHub:
         except Exception as exc:
             Logger.warning(f"Could not write summary.json: {exc}")
 
+    def _open_report(self) -> None:
+        """With --open, show the human report right after the scan.
+
+        Prefers a markdown viewer (glow/bat), falls back to a pager, then to
+        printing — so the operator never has to hunt for the output path.
+        """
+        if not getattr(self.args, "open", False) or not self.output_dir:
+            return
+        import shutil
+        import subprocess
+
+        report = next(
+            (self.output_dir / name for name in ("offline_report.md", Config.FILE_AI_ADVICE)
+             if (self.output_dir / name).is_file()),
+            None,
+        )
+        if not report:
+            Logger.warning("--open: no report file found to open.")
+            return
+        for viewer in ("glow", "bat", "less"):
+            if shutil.which(viewer):
+                try:
+                    subprocess.run([viewer, str(report)])
+                    return
+                except Exception:
+                    break
+        # No viewer available — print the report inline.
+        Logger.info(f"Report ({report}):")
+        print(report.read_text(encoding="utf-8", errors="replace"))
+
     # ── Full pipeline ─────────────────────────────────────────────────────
 
     def _full_pipeline(self) -> None:
@@ -856,6 +886,7 @@ class BountyHub:
                         f"advise --target {self.target}  (one Opus call, reuses saved findings)")
             self._write_run_summary()
             self._print_summary()
+            self._open_report()
             return
 
         # Stage 4 — AI Advisor (folds in JS-Oracle + active-recon findings)
@@ -878,6 +909,7 @@ class BountyHub:
 
         self._write_run_summary()
         self._print_summary()
+        self._open_report()
 
     # ── Dispatch ──────────────────────────────────────────────────────────
 
@@ -1016,6 +1048,11 @@ disclaimer:
         help="Passive only — skip Active Recon & Fuzzing (katana/ffuf/arjun/naabu/"
              "nuclei). Default is the FULL deep scan (recommended for SPAs, where "
              "katana is what discovers the JS).",
+    )
+    p_full.add_argument(
+        "--open", action="store_true",
+        help="After the scan, open the report (glow/bat/pager, or print) — no need "
+             "to hunt for the output path.",
     )
 
     def _add_scope_args(p) -> None:
