@@ -117,6 +117,12 @@ python3 cli/main.py full --target example.com
 # Passive only — skips the active recon and fuzzing phase
 python3 cli/main.py full --target example.com --fast
 
+# Stay within a program's scope — only these hosts are ever touched
+python3 cli/main.py full --target example.com --scope scope.txt --out-of-scope oos.txt
+
+# Go gentle on a rate-sensitive program — lower every tool's request rate
+python3 cli/main.py full --target example.com --polite
+
 # Individual modules
 python3 cli/main.py recon       --target example.com
 python3 cli/main.py fingerprint --target example.com --hosts-file live_hosts.txt
