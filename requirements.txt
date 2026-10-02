@@ -1,0 +1,14 @@
+# Python dependencies for scan-engine.
+#
+# The engine's core pipeline (recon, fingerprint, scope, robots, run summary)
+# runs on the standard library alone — these packages power the OPTIONAL AI
+# stages, and every import of them is guarded, so a scan still runs without them.
+#
+#   install:  python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt
+#
+# Module 4 (JS-Oracle) runs in its OWN virtualenv (<js-oracle>/.venv). Install
+# JS-Oracle's requirements there separately, or point $JS_ORACLE_ROOT at it.
+
+anthropic>=0.40        # Module 3 — AI vulnerability advisor (needs ANTHROPIC_API_KEY)
+google-genai>=0.3      # report synthesizer (needs GEMINI_API_KEY / GOOGLE_API_KEY)
+python-dotenv>=1.0     # load ANTHROPIC_API_KEY / GEMINI_API_KEY from a .env file
