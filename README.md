@@ -96,14 +96,31 @@ running the wrong one.
 git clone https://github.com/malek-sec/scan-engine.git
 git clone https://github.com/malek-sec/JS-Oracle.git js-oracle   # sibling, optional
 
+# scan-engine: a virtualenv for the optional AI stages (Modules 3 & report).
+# On Debian/Kali, pip refuses to touch the system Python (PEP 668), so a venv
+# is the supported path — never `pip install` globally.
 cd scan-engine
+python3 -m venv .venv            # needs python3-full / python3-venv on Kali
+.venv/bin/python -m pip install -r requirements.txt
+source .venv/bin/activate        # or run .venv/bin/python cli/main.py ...
+
+# JS-Oracle (Module 4) runs in its OWN venv at <js-oracle>/.venv — set it up too:
+cd ../js-oracle
 python3 -m venv .venv
-source .venv/bin/activate
+.venv/bin/python -m pip install -r requirements.txt
+cd ../scan-engine
 ```
 
+The core pipeline (recon, fingerprint, scope guard, robots, run summary) runs on
+the standard library alone; `requirements.txt` only powers the optional AI stages
+and every import of it is guarded. Set `ANTHROPIC_API_KEY` (AI advisor) and,
+optionally, `GEMINI_API_KEY` (report synthesizer) before an AI run.
+
 Module 4 resolves the JS-Oracle install by looking for a `js-oracle` directory
-next to this checkout, or at `$JS_ORACLE_ROOT` if you set it. No path is
-hardcoded to a particular machine.
+next to this checkout, or at `$JS_ORACLE_ROOT` if you set it. It executes
+JS-Oracle with that repo's own `.venv`, so JS-Oracle's dependencies must be
+installed there (the step above), not in scan-engine's venv. No path is hardcoded
+to a particular machine.
 
 ## Usage
 
