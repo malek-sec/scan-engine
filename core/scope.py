@@ -75,10 +75,15 @@ class ScopeGuard:
         for p in raw_in:
             if p.strip().startswith("!"):
                 raw_out.append(p.strip()[1:])
-        self.in_scope = [_normalize_pattern(p) for p in raw_in
-                         if p.strip() and not p.strip().startswith(("#", "!"))]
-        self.out_of_scope = [_normalize_pattern(p) for p in raw_out
-                             if p.strip() and not p.strip().startswith("#")]
+        # dict.fromkeys de-duplicates while preserving order, so "example.com"
+        # and "*.example.com" (which normalize to the same host) don't show up
+        # twice in the guard or its description.
+        self.in_scope = list(dict.fromkeys(
+            _normalize_pattern(p) for p in raw_in
+            if p.strip() and not p.strip().startswith(("#", "!"))))
+        self.out_of_scope = list(dict.fromkeys(
+            _normalize_pattern(p) for p in raw_out
+            if p.strip() and not p.strip().startswith("#")))
 
     # ── constructors ─────────────────────────────────────────────────────────
     @classmethod

@@ -71,3 +71,11 @@ def test_from_files_reads_patterns(tmp_path):
     assert g.is_in_scope("api.example.com")
     assert g.is_in_scope("sub.example.org")
     assert not g.is_in_scope("staging.example.com")
+
+
+def test_apex_and_wildcard_dedupe_in_describe():
+    # "example.com" and "*.example.com" normalize to the same host — the guard
+    # must list it once, not twice.
+    g = ScopeGuard(["example.com", "*.example.com"])
+    assert g.in_scope == ["example.com"]
+    assert g.describe().count("example.com") == 1
